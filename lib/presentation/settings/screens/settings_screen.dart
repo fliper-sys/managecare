@@ -48,7 +48,7 @@ class SettingsScreen extends StatelessWidget {
       ),
       body: SingleChildScrollView(
         child: Column(
-          children: [
+              children: [
             // Profile Header
             Container(
               margin: const EdgeInsets.fromLTRB(20, 8, 20, 0),
@@ -137,7 +137,7 @@ class SettingsScreen extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
+                children: [
                   Text(
                     'Business',
                     style: theme.textTheme.titleSmall?.copyWith(
@@ -385,6 +385,17 @@ class SettingsScreen extends StatelessWidget {
                           );
                         },
                       ),
+                      if (user?.isOwner == true) ...[
+                        const Divider(height: 1),
+                        _SettingsItem(
+                          icon: Icons.monitor_heart_outlined,
+                          title: 'Live app logs',
+                          subtitle: 'Watch, filter, and copy recent app logs',
+                          onTap: () {
+                            Navigator.pushNamed(context, Routes.liveLogs);
+                          },
+                        ),
+                      ],
                       const Divider(height: 1),
                       _SettingsItem(
                         icon: Icons.file_download_outlined,
@@ -943,4 +954,3 @@ class _ContactOption extends StatelessWidget {
     );
   }
 }
-

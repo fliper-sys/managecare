@@ -56,8 +56,7 @@ class AdminStats {
       pendingSubscriptionApprovals:
           pendingSubscriptionApprovals ?? this.pendingSubscriptionApprovals,
       activeSubscriptions: activeSubscriptions ?? this.activeSubscriptions,
-      restrictedBusinesses:
-          restrictedBusinesses ?? this.restrictedBusinesses,
+      restrictedBusinesses: restrictedBusinesses ?? this.restrictedBusinesses,
       totalMarketers: totalMarketers ?? this.totalMarketers,
       recentActivities: recentActivities ?? this.recentActivities,
     );
@@ -144,6 +143,51 @@ class AdminProvider extends ChangeNotifier {
     return 'id:$docId';
   }
 
+  List<Map<String, dynamic>> _dedupeDashboardUsers(
+    Iterable<Map<String, dynamic>> rows,
+  ) {
+    final byEmail = <String, Map<String, dynamic>>{};
+    final withoutEmail = <Map<String, dynamic>>[];
+    for (final row in rows) {
+      final email = _readString(row['email']).toLowerCase();
+      if (email.isEmpty) {
+        withoutEmail.add(Map<String, dynamic>.from(row));
+        continue;
+      }
+      final current = byEmail[email];
+      if (current == null) {
+        byEmail[email] = Map<String, dynamic>.from(row);
+      } else {
+        // Prefer the profile row's identity/details and retain worker linkage.
+        final incomingIsProfile = _readString(row['tableSource']) == 'profiles';
+        final existingIsProfile =
+            _readString(current['tableSource']) == 'profiles';
+        final merged =
+            incomingIsProfile ? {...current, ...row} : {...row, ...current};
+        // API mappers include nullable columns; don't let a sparse row erase
+        // useful identity or business details from the matching record.
+        for (final entry in (incomingIsProfile ? current : row).entries) {
+          final value = merged[entry.key];
+          if (value == null || (value is String && value.trim().isEmpty)) {
+            merged[entry.key] = entry.value;
+          }
+        }
+        merged['isWorker'] =
+            _readBool(current['isWorker']) || _readBool(row['isWorker']);
+        merged['tableSource'] = existingIsProfile || incomingIsProfile
+            ? (merged['isWorker'] ? 'profiles+workers' : 'profiles')
+            : 'workers';
+        merged['tableSources'] = [
+          if (existingIsProfile || incomingIsProfile) 'profiles',
+          if (_readBool(current['isWorker']) || _readBool(row['isWorker']))
+            'workers',
+        ];
+        byEmail[email] = merged;
+      }
+    }
+    return [...byEmail.values, ...withoutEmail];
+  }
+
   String _buildRevenueKey(String docId, Map<String, dynamic> data) {
     final transactionId =
         _readString(data['transactionId'] ?? data['processorTransactionId']);
@@ -196,8 +240,7 @@ class AdminProvider extends ChangeNotifier {
       final tableSources = <String>{
         if (existing != null && existing['tableSources'] is List)
           ...List<String>.from(
-            (existing['tableSources'] as List)
-                .map((entry) => entry.toString()),
+            (existing['tableSources'] as List).map((entry) => entry.toString()),
           ),
         tableName,
       }.toList()
@@ -206,8 +249,7 @@ class AdminProvider extends ChangeNotifier {
       merged['tableSources'] = tableSources;
       merged['tableSource'] =
           tableSources.length > 1 ? 'users+workers' : tableName;
-      merged['isWorker'] =
-          _readBool(merged['isWorker']) ||
+      merged['isWorker'] = _readBool(merged['isWorker']) ||
           _readString(merged['role']).toLowerCase() == 'worker' ||
           _readString(merged['type']).toLowerCase() == 'worker' ||
           tableSources.contains('workers');
@@ -395,10 +437,8 @@ class AdminProvider extends ChangeNotifier {
         _allBusinesses.where(_hasPendingSubscriptionReview).length;
     _stats = _stats.copyWith(
       totalBusinesses: _allBusinesses.length,
-      activeSubscriptions:
-          _allBusinesses.where(_isBusinessAvailable).length,
-      restrictedBusinesses:
-          _allBusinesses.where(_isBusinessRestricted).length,
+      activeSubscriptions: _allBusinesses.where(_isBusinessAvailable).length,
+      restrictedBusinesses: _allBusinesses.where(_isBusinessRestricted).length,
       pendingSubscriptionApprovals: pendingFromCache > 0
           ? pendingFromCache
           : _stats.pendingSubscriptionApprovals,
@@ -413,7 +453,8 @@ class AdminProvider extends ChangeNotifier {
       } catch (backendError) {
         debugPrint('[AdminProvider] Backend settings fallback: $backendError');
       }
-      final doc = await _firestore.collection('system').doc('admin_settings').get();
+      final doc =
+          await _firestore.collection('system').doc('admin_settings').get();
       return doc.data() ?? const {};
     } catch (e) {
       _errorMessage = e.toString();
@@ -434,7 +475,8 @@ class AdminProvider extends ChangeNotifier {
         notifyListeners();
         return true;
       } catch (backendError) {
-        debugPrint('[AdminProvider] Backend save settings fallback: $backendError');
+        debugPrint(
+            '[AdminProvider] Backend save settings fallback: $backendError');
       }
 
       await _firestore.collection('system').doc('admin_settings').set({
@@ -458,7 +500,8 @@ class AdminProvider extends ChangeNotifier {
   Future<void> fetchAdminStats({bool force = false}) async {
     // Prevent duplicate simultaneous requests
     if (_isStatsLoadInProgress) {
-      print('[AdminProvider] ⏭️ Stats load already in progress, skipping duplicate request');
+      print(
+          '[AdminProvider] ⏭️ Stats load already in progress, skipping duplicate request');
       return;
     }
 
@@ -466,7 +509,8 @@ class AdminProvider extends ChangeNotifier {
     if (!force && _lastStatsLoadTime != null) {
       final elapsed = DateTime.now().difference(_lastStatsLoadTime!);
       if (elapsed < _minStatsRefreshInterval) {
-        print('[AdminProvider] ⏭️ Skipping reload - stats refreshed ${elapsed.inSeconds}s ago');
+        print(
+            '[AdminProvider] ⏭️ Skipping reload - stats refreshed ${elapsed.inSeconds}s ago');
         return;
       }
     }
@@ -485,16 +529,17 @@ class AdminProvider extends ChangeNotifier {
         _allBusinesses = _dedupeBusinesses(
           List<Map<String, dynamic>>.from(dashboard['businesses'] as List),
         );
-        _allUsers = List<Map<String, dynamic>>.from(dashboard['users'] as List);
+        _allUsers = _dedupeDashboardUsers(
+          List<Map<String, dynamic>>.from(dashboard['users'] as List),
+        );
         _usersCollectionCount = (dashboard['usersCount'] as num?)?.toInt() ??
             _allUsers.where((u) => u['tableSource'] == 'users').length;
         _workersCollectionCount =
             (dashboard['workersCount'] as num?)?.toInt() ??
                 _allUsers.where((u) => u['isWorker'] == true).length;
         _stats = AdminStats(
-          totalBusinesses:
-              (backendStats['totalBusinesses'] as num?)?.toInt() ??
-                  _allBusinesses.length,
+          totalBusinesses: (backendStats['totalBusinesses'] as num?)?.toInt() ??
+              _allBusinesses.length,
           activeUsers: (backendStats['activeUsers'] as num?)?.toInt() ?? 0,
           totalRevenue: (backendStats['totalRevenue'] as num?)?.toInt() ?? 0,
           pendingPayments:
@@ -536,9 +581,10 @@ class AdminProvider extends ChangeNotifier {
       final usersSnapshot = await _firestore.collection('users').get();
       _allUsers = usersSnapshot.docs.map((doc) {
         final userData = {'id': doc.id, ...doc.data()};
-        
-        print('🔍 ENRICHMENT: Processing user "${userData['name']}" with businessId="${userData['businessId']}"');
-        
+
+        print(
+            '🔍 ENRICHMENT: Processing user "${userData['name']}" with businessId="${userData['businessId']}"');
+
         // Enrich user data with business subscription status
         final businessId = userData['businessId'] as String?;
         if (businessId != null && businessId.isNotEmpty) {
@@ -547,14 +593,21 @@ class AdminProvider extends ChangeNotifier {
             orElse: () => {},
           );
           if (matchingBusiness.isNotEmpty) {
-            print('🔍 ENRICHMENT: Found business for "${userData['name']}": isSubscriptionActive=${matchingBusiness['isSubscriptionActive']}');
-            userData['isSubscriptionActive'] = matchingBusiness['isSubscriptionActive'] ?? false;
-            userData['subscriptionTier'] = matchingBusiness['subscriptionTier'] ?? 'tier1';
-            userData['subscriptionEndDate'] = matchingBusiness['subscriptionEndDate'];
-            userData['subscriptionStartDate'] = matchingBusiness['subscriptionStartDate'];
-            userData['businessName'] = matchingBusiness['businessName'] ?? 'N/A';
+            print(
+                '🔍 ENRICHMENT: Found business for "${userData['name']}": isSubscriptionActive=${matchingBusiness['isSubscriptionActive']}');
+            userData['isSubscriptionActive'] =
+                matchingBusiness['isSubscriptionActive'] ?? false;
+            userData['subscriptionTier'] =
+                matchingBusiness['subscriptionTier'] ?? 'tier1';
+            userData['subscriptionEndDate'] =
+                matchingBusiness['subscriptionEndDate'];
+            userData['subscriptionStartDate'] =
+                matchingBusiness['subscriptionStartDate'];
+            userData['businessName'] =
+                matchingBusiness['businessName'] ?? 'N/A';
           } else {
-            print('🔍 ENRICHMENT: NO business found for businessId="$businessId" in ${_allBusinesses.length} businesses');
+            print(
+                '🔍 ENRICHMENT: NO business found for businessId="$businessId" in ${_allBusinesses.length} businesses');
           }
         } else {
           // If no businessId, set default values
@@ -562,9 +615,10 @@ class AdminProvider extends ChangeNotifier {
           userData['isSubscriptionActive'] = false;
           userData['subscriptionTier'] = 'tier1';
         }
-        
-        print('🔍 ENRICHMENT RESULT: "${userData['name']}" -> isSubscriptionActive=${userData['isSubscriptionActive']}');
-        
+
+        print(
+            '🔍 ENRICHMENT RESULT: "${userData['name']}" -> isSubscriptionActive=${userData['isSubscriptionActive']}');
+
         return userData;
       }).toList();
 
@@ -575,10 +629,10 @@ class AdminProvider extends ChangeNotifier {
       _workersCollectionCount = workersSnapshot.docs.length;
       _allUsers = _mergeAdminAccessibleUsers(usersSnapshot, workersSnapshot)
           .map((userData) {
-        final resolvedBusinessId = _readString(userData['currentBusinessId'])
-                .isNotEmpty
-            ? _readString(userData['currentBusinessId'])
-            : _readString(userData['businessId']);
+        final resolvedBusinessId =
+            _readString(userData['currentBusinessId']).isNotEmpty
+                ? _readString(userData['currentBusinessId'])
+                : _readString(userData['businessId']);
 
         if (resolvedBusinessId.isNotEmpty) {
           final matchingBusiness = _allBusinesses.firstWhere(
@@ -595,8 +649,7 @@ class AdminProvider extends ChangeNotifier {
                 matchingBusiness['subscriptionEndDate'];
             userData['subscriptionStartDate'] =
                 matchingBusiness['subscriptionStartDate'];
-            userData['businessName'] =
-                matchingBusiness['name'] ??
+            userData['businessName'] = matchingBusiness['name'] ??
                 matchingBusiness['businessName'] ??
                 'N/A';
             userData['businessRestricted'] =
@@ -671,7 +724,8 @@ class AdminProvider extends ChangeNotifier {
           await _firestore.collection('payment_transactions').get();
       totalTransactions = paymentTransactionsSnapshot.docs.length;
 
-      final marketersSnapshot = await _firestore.collection('app_marketers').get();
+      final marketersSnapshot =
+          await _firestore.collection('app_marketers').get();
       totalMarketers = marketersSnapshot.docs.length;
 
       // Get recent activities (last 10)
@@ -691,7 +745,8 @@ class AdminProvider extends ChangeNotifier {
         if (user['lastActive'] == null) continue;
         final lastActiveDate = parseTimestamp(user['lastActive']);
 
-        if (lastActiveDate.isAfter(DateTime.now().subtract(const Duration(hours: 24)))) {
+        if (lastActiveDate
+            .isAfter(DateTime.now().subtract(const Duration(hours: 24)))) {
           activeUsersCount++;
         }
       }
@@ -703,8 +758,7 @@ class AdminProvider extends ChangeNotifier {
         pendingPayments: pendingPayments,
         totalTransactions: totalTransactions,
         pendingSubscriptionApprovals: pendingSubscriptionApprovals,
-        activeSubscriptions:
-            _allBusinesses.where(_isBusinessAvailable).length,
+        activeSubscriptions: _allBusinesses.where(_isBusinessAvailable).length,
         restrictedBusinesses:
             _allBusinesses.where(_isBusinessRestricted).length,
         totalMarketers: totalMarketers,
@@ -745,7 +799,8 @@ class AdminProvider extends ChangeNotifier {
         notifyListeners();
         return true;
       } catch (backendError) {
-        debugPrint('[AdminProvider] Backend sendNotificationToUsers fallback: $backendError');
+        debugPrint(
+            '[AdminProvider] Backend sendNotificationToUsers fallback: $backendError');
       }
 
       // Store notification in Firestore
@@ -836,7 +891,8 @@ class AdminProvider extends ChangeNotifier {
         notifyListeners();
         return true;
       } catch (backendError) {
-        debugPrint('[AdminProvider] Backend grantBusinessSubscription fallback: $backendError');
+        debugPrint(
+            '[AdminProvider] Backend grantBusinessSubscription fallback: $backendError');
       }
 
       final now = DateTime.now();
@@ -930,8 +986,7 @@ class AdminProvider extends ChangeNotifier {
           .collection('users')
           .where('businessId', isEqualTo: businessId)
           .get();
-      final endLabel =
-          '${endDate.day}/${endDate.month}/${endDate.year}';
+      final endLabel = '${endDate.day}/${endDate.month}/${endDate.year}';
       for (final userDoc in affectedUsers.docs) {
         await userDoc.reference.collection('notifications').add({
           'title': 'Subscription Activated',
@@ -998,10 +1053,12 @@ class AdminProvider extends ChangeNotifier {
           recipients: normalizedRecipients,
         );
       } catch (backendError) {
-        debugPrint('[AdminProvider] Backend createEmailLog fallback: $backendError');
+        debugPrint(
+            '[AdminProvider] Backend createEmailLog fallback: $backendError');
       }
 
-      final emailId = backendEmailLogId ?? _firestore.collection('emails').doc().id;
+      final emailId =
+          backendEmailLogId ?? _firestore.collection('emails').doc().id;
       if (backendEmailLogId == null) {
         await _firestore.collection('emails').doc(emailId).set({
           'subject': subject,
@@ -1068,7 +1125,8 @@ class AdminProvider extends ChangeNotifier {
             failedRecipients: failedRecipients,
           );
         } catch (backendError) {
-          debugPrint('[AdminProvider] Backend completeEmailLog fallback: $backendError');
+          debugPrint(
+              '[AdminProvider] Backend completeEmailLog fallback: $backendError');
         }
       } else {
         await _firestore.collection('emails').doc(emailId).set({
@@ -1112,7 +1170,8 @@ class AdminProvider extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
-      debugPrint('[AdminProvider] activateYearlySubscriptionForWorkers failed: $e');
+      debugPrint(
+          '[AdminProvider] activateYearlySubscriptionForWorkers failed: $e');
       _isLoading = false;
       notifyListeners();
       return false;
@@ -1122,7 +1181,8 @@ class AdminProvider extends ChangeNotifier {
   /// Grants informational "admin yearly access" subscription metadata to a
   /// single worker. See [activateYearlySubscriptionForWorkers] for why this
   /// has no effect on actual access.
-  Future<bool> activateYearlySubscriptionForWorker(String userId, String businessId) async {
+  Future<bool> activateYearlySubscriptionForWorker(
+      String userId, String businessId) async {
     try {
       _isLoading = true;
       notifyListeners();
@@ -1133,7 +1193,8 @@ class AdminProvider extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
-      debugPrint('[AdminProvider] activateYearlySubscriptionForWorker failed: $e');
+      debugPrint(
+          '[AdminProvider] activateYearlySubscriptionForWorker failed: $e');
       _isLoading = false;
       notifyListeners();
       return false;
@@ -1175,9 +1236,8 @@ class AdminProvider extends ChangeNotifier {
       notifyListeners();
 
       // Get all user emails
-      final userEmails = _allUsers
-          .map((u) => (u['email'] ?? '').toString())
-          .toList();
+      final userEmails =
+          _allUsers.map((u) => (u['email'] ?? '').toString()).toList();
 
       return await sendEmailToUsers(
         subject: subject,
@@ -1197,11 +1257,13 @@ class AdminProvider extends ChangeNotifier {
     try {
       return await _adminRepository.getUser(userId);
     } catch (backendError) {
-      debugPrint('[AdminProvider] Backend getUserDetails fallback: $backendError');
+      debugPrint(
+          '[AdminProvider] Backend getUserDetails fallback: $backendError');
     }
     try {
       final userDoc = await _firestore.collection('users').doc(userId).get();
-      final workerDoc = await _firestore.collection('workers').doc(userId).get();
+      final workerDoc =
+          await _firestore.collection('workers').doc(userId).get();
 
       if (!userDoc.exists && !workerDoc.exists) {
         return null;
@@ -1245,7 +1307,8 @@ class AdminProvider extends ChangeNotifier {
         await _adminRepository.updateUser(userId, updates);
         backendSaved = true;
       } catch (backendError) {
-        debugPrint('[AdminProvider] Backend updateUser fallback: $backendError');
+        debugPrint(
+            '[AdminProvider] Backend updateUser fallback: $backendError');
       }
       if (!backendSaved) {
         await _firestore.collection('users').doc(userId).update(updates);
@@ -1269,7 +1332,8 @@ class AdminProvider extends ChangeNotifier {
   }
 
   /// Remove a worker from a business without deleting the underlying user.
-  Future<bool> removeWorkerFromBusiness(String userId, String businessId) async {
+  Future<bool> removeWorkerFromBusiness(
+      String userId, String businessId) async {
     try {
       _isLoading = true;
       notifyListeners();
@@ -1280,7 +1344,8 @@ class AdminProvider extends ChangeNotifier {
           businessId: businessId,
         );
       } catch (backendError) {
-        debugPrint('[AdminProvider] Backend removeWorkerFromBusiness fallback: $backendError');
+        debugPrint(
+            '[AdminProvider] Backend removeWorkerFromBusiness fallback: $backendError');
       }
 
       await _firestore.collection('users').doc(userId).set({
@@ -1309,9 +1374,11 @@ class AdminProvider extends ChangeNotifier {
         };
       }
 
-      final businessIdx = _allBusinesses.indexWhere((b) => b['id'] == businessId);
+      final businessIdx =
+          _allBusinesses.indexWhere((b) => b['id'] == businessId);
       if (businessIdx >= 0) {
-        final currentWorkers = (_allBusinesses[businessIdx]['totalWorkers'] as num?)?.toInt() ?? 0;
+        final currentWorkers =
+            (_allBusinesses[businessIdx]['totalWorkers'] as num?)?.toInt() ?? 0;
         _allBusinesses[businessIdx] = {
           ..._allBusinesses[businessIdx],
           'totalWorkers': currentWorkers > 0 ? currentWorkers - 1 : 0,
@@ -1334,7 +1401,8 @@ class AdminProvider extends ChangeNotifier {
     try {
       return await _adminRepository.getBusiness(businessId);
     } catch (backendError) {
-      debugPrint('[AdminProvider] Backend getBusinessDetails fallback: $backendError');
+      debugPrint(
+          '[AdminProvider] Backend getBusinessDetails fallback: $backendError');
     }
     try {
       final doc =
@@ -1357,7 +1425,8 @@ class AdminProvider extends ChangeNotifier {
     try {
       return await _adminRepository.getDailySalesSummary(businessId, date);
     } catch (backendError) {
-      debugPrint('[AdminProvider] Backend getDailySalesSummary fallback: $backendError');
+      debugPrint(
+          '[AdminProvider] Backend getDailySalesSummary fallback: $backendError');
     }
     try {
       final start = DateTime(date.year, date.month, date.day);
@@ -1394,29 +1463,31 @@ class AdminProvider extends ChangeNotifier {
       final Map<String, Map<String, double>> items = {};
       final Map<String, double> cashierTotals = {};
       final Map<String, double> paymentMethodTotals = {};
-      final List<Map<String, dynamic>> transactions = []; 
+      final List<Map<String, dynamic>> transactions = [];
 
       for (var doc in docs) {
         final data = doc.data() as Map<String, dynamic>;
         final saleAmount =
-          (data['finalAmount'] ?? data['totalAmount'] ?? data['total'] ?? 0)
-            .toDouble();
+            (data['finalAmount'] ?? data['totalAmount'] ?? data['total'] ?? 0)
+                .toDouble();
         totalSales += saleAmount;
 
         // cashier / worker / seller name detection
         final cashierName = data['cashierName']?.toString() ??
-          data['workerName']?.toString() ??
-          data['seller']?.toString() ??
-          data['userName']?.toString() ??
-          'Unknown';
-        cashierTotals[cashierName] = (cashierTotals[cashierName] ?? 0) + saleAmount;
+            data['workerName']?.toString() ??
+            data['seller']?.toString() ??
+            data['userName']?.toString() ??
+            'Unknown';
+        cashierTotals[cashierName] =
+            (cashierTotals[cashierName] ?? 0) + saleAmount;
 
         // payment method tracking
         final paymentMethod = data['paymentMethod']?.toString() ?? 'Unknown';
-        paymentMethodTotals[paymentMethod] = (paymentMethodTotals[paymentMethod] ?? 0) + saleAmount;
+        paymentMethodTotals[paymentMethod] =
+            (paymentMethodTotals[paymentMethod] ?? 0) + saleAmount;
 
         // record transaction details for message display
-        
+
         final rawItems = (data['items'] as List<dynamic>?) ?? [];
         for (var item in rawItems) {
           try {
@@ -1441,7 +1512,11 @@ class AdminProvider extends ChangeNotifier {
                 costPerUnit = (item['unitCost'] as num).toDouble();
               } else if (item['product'] is Map) {
                 final prod = item['product'] as Map<String, dynamic>;
-                costPerUnit = ((prod['cost'] ?? prod['costPrice'] ?? prod['unitCost']) as num?)?.toDouble() ?? 0.0;
+                costPerUnit = ((prod['cost'] ??
+                            prod['costPrice'] ??
+                            prod['unitCost']) as num?)
+                        ?.toDouble() ??
+                    0.0;
               }
             } catch (_) {
               costPerUnit = 0.0;
@@ -1452,8 +1527,11 @@ class AdminProvider extends ChangeNotifier {
             if (costPerUnit <= 0.0) {
               try {
                 String? pid;
-                if (item['productId'] != null) pid = item['productId'].toString();
-                else if (item['product'] is Map && (item['product'] as Map).containsKey('id')) pid = (item['product']['id'] ?? '').toString();
+                if (item['productId'] != null)
+                  pid = item['productId'].toString();
+                else if (item['product'] is Map &&
+                    (item['product'] as Map).containsKey('id'))
+                  pid = (item['product']['id'] ?? '').toString();
                 else if (item['id'] != null) pid = item['id'].toString();
 
                 if (pid != null && pid.isNotEmpty) {
@@ -1464,10 +1542,12 @@ class AdminProvider extends ChangeNotifier {
                       .doc(pid)
                       .get();
                   if (invDoc.exists) {
-                    final invData = invDoc.data() as Map<String, dynamic>? ?? {};
+                    final invData =
+                        invDoc.data() as Map<String, dynamic>? ?? {};
                     costPerUnit = (invData['costPrice'] as num?)?.toDouble() ??
-                                  (invData['unitCost'] as num?)?.toDouble() ??
-                                  (invData['cost'] as num?)?.toDouble() ?? costPerUnit;
+                        (invData['unitCost'] as num?)?.toDouble() ??
+                        (invData['cost'] as num?)?.toDouble() ??
+                        costPerUnit;
                   }
                 }
               } catch (_) {
@@ -1482,7 +1562,7 @@ class AdminProvider extends ChangeNotifier {
               items[name] = {'quantity': 0.0, 'sales': 0.0};
             }
             items[name]!['quantity'] = items[name]!['quantity']! + qty;
-            items[name]!['sales'] = items[name]!['sales']! + lineTotal; 
+            items[name]!['sales'] = items[name]!['sales']! + lineTotal;
           } catch (_) {
             // ignore malformed item entries
           }
@@ -1494,7 +1574,6 @@ class AdminProvider extends ChangeNotifier {
           'items': rawItems,
           'createdAt': data['createdAt'] ?? data['timestamp'] ?? null,
         });
-
       }
 
       // compute previous day totals for growth
@@ -1506,8 +1585,10 @@ class AdminProvider extends ChangeNotifier {
             .collection('businesses')
             .doc(businessId)
             .collection('sales')
-            .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(prevStart))
-            .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(prevEnd));
+            .where('createdAt',
+                isGreaterThanOrEqualTo: Timestamp.fromDate(prevStart))
+            .where('createdAt',
+                isLessThanOrEqualTo: Timestamp.fromDate(prevEnd));
 
         final prevSnap = await prevQuery.get();
         List<QueryDocumentSnapshot> prevDocs = prevSnap.docs;
@@ -1516,20 +1597,27 @@ class AdminProvider extends ChangeNotifier {
               .collection('businesses')
               .doc(businessId)
               .collection('sales')
-              .where('timestamp', isGreaterThanOrEqualTo: prevStart.millisecondsSinceEpoch)
-              .where('timestamp', isLessThanOrEqualTo: prevEnd.millisecondsSinceEpoch);
+              .where('timestamp',
+                  isGreaterThanOrEqualTo: prevStart.millisecondsSinceEpoch)
+              .where('timestamp',
+                  isLessThanOrEqualTo: prevEnd.millisecondsSinceEpoch);
           final tsPrevSnap = await tsPrevQuery.get();
           prevDocs = tsPrevSnap.docs;
         }
 
         for (var d in prevDocs) {
           final pdata = d.data() as Map<String, dynamic>;
-          previousDayTotal += (pdata['finalAmount'] ?? pdata['totalAmount'] ?? pdata['total'] ?? 0).toDouble();
+          previousDayTotal += (pdata['finalAmount'] ??
+                  pdata['totalAmount'] ??
+                  pdata['total'] ??
+                  0)
+              .toDouble();
         }
       } catch (_) {}
 
       final grossProfit = totalSales - totalCost;
-      final grossMarginPercent = totalSales > 0 ? (grossProfit / totalSales) * 100.0 : 0.0;
+      final grossMarginPercent =
+          totalSales > 0 ? (grossProfit / totalSales) * 100.0 : 0.0;
 
       return {
         'totalSales': totalSales,
@@ -1562,16 +1650,24 @@ class AdminProvider extends ChangeNotifier {
         await _adminRepository.updateBusiness(businessId, updates);
         backendSaved = true;
       } catch (backendError) {
-        debugPrint('[AdminProvider] Backend business update failed: $backendError');
+        debugPrint(
+            '[AdminProvider] Backend business update failed: $backendError');
       }
 
       if (!backendSaved) {
-        await _firestore.collection('businesses').doc(businessId).update(updates);
+        await _firestore
+            .collection('businesses')
+            .doc(businessId)
+            .update(updates);
       } else {
         try {
-          await _firestore.collection('businesses').doc(businessId).update(updates);
+          await _firestore
+              .collection('businesses')
+              .doc(businessId)
+              .update(updates);
         } catch (firestoreError) {
-          debugPrint('[AdminProvider] Legacy Firestore business mirror skipped: $firestoreError');
+          debugPrint(
+              '[AdminProvider] Legacy Firestore business mirror skipped: $firestoreError');
         }
       }
 
@@ -1610,7 +1706,8 @@ class AdminProvider extends ChangeNotifier {
         notifyListeners();
         return true;
       } catch (backendError) {
-        debugPrint('[AdminProvider] Backend deleteBusinessCompletely fallback: $backendError');
+        debugPrint(
+            '[AdminProvider] Backend deleteBusinessCompletely fallback: $backendError');
       }
 
       final businessRef = _firestore.collection('businesses').doc(businessId);
@@ -1672,7 +1769,8 @@ class AdminProvider extends ChangeNotifier {
         notifyListeners();
         return true;
       } catch (backendError) {
-        debugPrint('[AdminProvider] Backend restoreDeletedBusiness fallback: $backendError');
+        debugPrint(
+            '[AdminProvider] Backend restoreDeletedBusiness fallback: $backendError');
       }
 
       final businessRef = _firestore.collection('businesses').doc(businessId);
@@ -1724,7 +1822,8 @@ class AdminProvider extends ChangeNotifier {
   Future<bool> deleteUserWithRecovery(String userId) async {
     try {
       if ((_auth.currentUser?.uid ?? '') == userId) {
-        throw Exception('You cannot delete the currently signed-in admin account.');
+        throw Exception(
+            'You cannot delete the currently signed-in admin account.');
       }
 
       _isLoading = true;
@@ -1740,7 +1839,8 @@ class AdminProvider extends ChangeNotifier {
         notifyListeners();
         return true;
       } catch (backendError) {
-        debugPrint('[AdminProvider] Backend deleteUserWithRecovery fallback: $backendError');
+        debugPrint(
+            '[AdminProvider] Backend deleteUserWithRecovery fallback: $backendError');
       }
 
       final userRef = _firestore.collection('users').doc(userId);
@@ -1751,9 +1851,8 @@ class AdminProvider extends ChangeNotifier {
         throw Exception('User account not found.');
       }
 
-      final userData = userSnap.data() ??
-          workerSnap.data() ??
-          const <String, dynamic>{};
+      final userData =
+          userSnap.data() ?? workerSnap.data() ?? const <String, dynamic>{};
       final displayName = _readString(
         userData['fullName'] ?? userData['name'] ?? userData['email'],
       );
@@ -1808,7 +1907,8 @@ class AdminProvider extends ChangeNotifier {
         notifyListeners();
         return true;
       } catch (backendError) {
-        debugPrint('[AdminProvider] Backend restoreDeletedUserAccount fallback: $backendError');
+        debugPrint(
+            '[AdminProvider] Backend restoreDeletedUserAccount fallback: $backendError');
       }
 
       final userRef = _firestore.collection('users').doc(userId);
@@ -1913,7 +2013,8 @@ class AdminProvider extends ChangeNotifier {
         notifyListeners();
         return true;
       } catch (backendError) {
-        debugPrint('[AdminProvider] Backend declineOneYearSubscription fallback: $backendError');
+        debugPrint(
+            '[AdminProvider] Backend declineOneYearSubscription fallback: $backendError');
       }
 
       final businessRef = _firestore.collection('businesses').doc(businessId);
@@ -1948,10 +2049,9 @@ class AdminProvider extends ChangeNotifier {
 
         if (pendingRequests.docs.isNotEmpty) {
           _stats = _stats.copyWith(
-            pendingSubscriptionApprovals:
-                (_stats.pendingSubscriptionApprovals -
-                        pendingRequests.docs.length)
-                    .clamp(0, 999999),
+            pendingSubscriptionApprovals: (_stats.pendingSubscriptionApprovals -
+                    pendingRequests.docs.length)
+                .clamp(0, 999999),
           );
         }
       } catch (_) {}
@@ -2026,7 +2126,8 @@ class AdminProvider extends ChangeNotifier {
         );
         backendSaved = true;
       } catch (backendError) {
-        debugPrint('[AdminProvider] Backend restriction fallback: $backendError');
+        debugPrint(
+            '[AdminProvider] Backend restriction fallback: $backendError');
       }
 
       try {
@@ -2056,8 +2157,7 @@ class AdminProvider extends ChangeNotifier {
         await businessRef.set({
           'isRestricted': restricted,
           'restrictionStatus': restricted ? 'restricted' : 'active',
-          'restrictionReason':
-              restricted ? trimmedReason : FieldValue.delete(),
+          'restrictionReason': restricted ? trimmedReason : FieldValue.delete(),
           'restrictedAt':
               restricted ? FieldValue.serverTimestamp() : FieldValue.delete(),
           'restrictedBy': restricted
@@ -2111,12 +2211,12 @@ class AdminProvider extends ChangeNotifier {
             'createdAt': FieldValue.serverTimestamp(),
           });
         }
-
       } catch (firestoreError) {
         if (!backendSaved) {
           rethrow;
         }
-        debugPrint('[AdminProvider] Legacy Firestore restriction mirror skipped: $firestoreError');
+        debugPrint(
+            '[AdminProvider] Legacy Firestore restriction mirror skipped: $firestoreError');
       }
 
       final businessIndex =

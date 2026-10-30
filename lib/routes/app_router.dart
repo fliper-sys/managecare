@@ -58,6 +58,7 @@ import '../presentation/settings/screens/profile_screen.dart';
 import '../presentation/settings/screens/business_settings_screen.dart';
 import '../presentation/settings/screens/whatsapp_settings_screen.dart';
 import '../presentation/settings/screens/notification_logs_screen.dart';
+import '../presentation/settings/screens/live_logs_screen.dart';
 import '../presentation/settings/screens/thermal_receipt_settings_screen.dart';
 import '../presentation/settings/screens/printer_settings_screen.dart';
 import '../presentation/settings/screens/customer_display_settings_screen.dart';
@@ -185,7 +186,6 @@ import '../presentation/industry_specific/restaurant/screens/kitchen_orders_scre
 import '../presentation/industry_specific/restaurant/screens/manage_menu_screen.dart';
 import '../presentation/industry_specific/restaurant/screens/pending_orders_checkout_screen.dart';
 import '../presentation/industry_specific/restaurant/screens/restaurant_stock_screen.dart';
-
 
 import '../presentation/industry_specific/realestate/screens/realestate_dashboard_screen.dart';
 import '../presentation/industry_specific/realestate/screens/property_listings_screen.dart';
@@ -441,6 +441,9 @@ class AppRouter {
 
       case Routes.notificationLogs:
         return _buildRoute(const NotificationLogsScreen());
+
+      case Routes.liveLogs:
+        return _buildRoute(const LiveLogsScreen());
 
       case Routes.thermalReceiptSettings:
         return _buildRoute(const ThermalReceiptSettingsScreen());

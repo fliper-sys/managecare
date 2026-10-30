@@ -110,9 +110,24 @@ class _AdministrativeDashboardScreenState
           ),
         ],
       ),
-      body: IndexedStack(
-        index: _page,
-        children: [_home(), _tasks(), _clientsPage(), _finance(), _more()],
+      body: PopScope(
+        canPop: _page == 0,
+        onPopInvoked: (didPop) {
+          if (!didPop && _page != 0 && mounted) {
+            setState(() => _page = 0);
+          }
+        },
+        child: IndexedStack(
+          index: _page,
+          children: [
+            _home(),
+            _tasks(),
+            _obligationsTab(),
+            _clientsPage(),
+            _finance(),
+            _more(),
+          ],
+        ),
       ),
       floatingActionButton: isAdministrativeOwner
           ? FloatingActionButton(
@@ -128,6 +143,7 @@ class _AdministrativeDashboardScreenState
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Home'),
           NavigationDestination(icon: Icon(Icons.task_alt_outlined), label: 'Tasks'),
+          NavigationDestination(icon: Icon(Icons.event_repeat_outlined), label: 'Obligations'),
           NavigationDestination(icon: Icon(Icons.people_outline), label: 'Clients'),
           NavigationDestination(icon: Icon(Icons.account_balance_wallet_outlined), label: 'Finance'),
           NavigationDestination(icon: Icon(Icons.more_horiz), label: 'More'),
@@ -184,9 +200,9 @@ class _AdministrativeDashboardScreenState
                 crossAxisSpacing: 10,
                 childAspectRatio: 1.75,
                 children: [
-                  _Metric('Revenue', hasDashboardMetrics ? _adminCurrency(metrics['revenue']) : '—', 'Finance', Icons.trending_up, AppColors.secondary, onTap: () => setState(() => _page = 3)),
-                  _Metric('Expenses', hasDashboardMetrics ? _adminCurrency(metrics['expenses']) : '—', 'Finance', Icons.trending_down, AppColors.error, onTap: () => setState(() => _page = 3)),
-                  _Metric('Clients', '${metrics['clients'] ?? provider.clients.length}', 'Directory', Icons.people_outline, AppColors.primary, onTap: () => setState(() => _page = 2)),
+                  _Metric('Revenue', hasDashboardMetrics ? _adminCurrency(metrics['revenue']) : '—', 'Finance', Icons.trending_up, AppColors.secondary, onTap: () => setState(() => _page = 4)),
+                  _Metric('Expenses', hasDashboardMetrics ? _adminCurrency(metrics['expenses']) : '—', 'Finance', Icons.trending_down, AppColors.error, onTap: () => setState(() => _page = 4)),
+                  _Metric('Clients', '${metrics['clients'] ?? provider.clients.length}', 'Directory', Icons.people_outline, AppColors.primary, onTap: () => setState(() => _page = 3)),
                   _Metric('Total Staff', metrics['staff'] == null ? '—' : '${metrics['staff']}', 'Staffing', Icons.badge_outlined, AppColors.accentDark, onTap: _staffing),
                 ],
               ).animate().fadeIn(duration: 350.ms).slideY(begin: .04, end: 0),
@@ -203,7 +219,11 @@ class _AdministrativeDashboardScreenState
                     contentPadding: EdgeInsets.zero,
                     leading: Icon(task.needsReview ? Icons.rate_review_outlined : Icons.task_alt_outlined),
                     title: Text(task.title),
-                    subtitle: Text('${task.clientName} · ${task.status.name}'),
+                    subtitle: Text(
+                      '${task.clientName} · ${task.status.name} · '
+                      'Due ${MaterialLocalizations.of(context).formatMediumDate(task.dueAt)} '
+                      '(${_countdown(task.dueAt)})',
+                    ),
                     onTap: () => setState(() => _page = 1),
                   )).animate().fadeIn(duration: 260.ms).slideX(begin: .025, end: 0)),
               const SizedBox(height: 18),
@@ -216,13 +236,29 @@ class _AdministrativeDashboardScreenState
                   const SizedBox(width: 10),
                   _action('Assign document', Icons.assignment_outlined, _assignDocument),
                   const SizedBox(width: 10),
-                  _action('Create task', Icons.add_task_outlined, () => setState(() => _page = 1)),
+                  _action('Create task', Icons.add_task_outlined, _createTask),
+                  const SizedBox(width: 10),
+                  _action(
+                    'Create obligation',
+                    Icons.event_repeat_outlined,
+                    () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => AdministrativeObligationsScreen(
+                        onObligationCreated: context
+                            .read<AdministrativeProvider>()
+                            .refreshWorkspace,
+                      ),
+                    )),
+                  ),
+                  const SizedBox(width: 10),
+                  _action('Add staff', Icons.person_add_alt_1_outlined, _staffing),
+                  const SizedBox(width: 10),
+                  _action('Invoices', Icons.receipt_long_outlined, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AdministrativeInvoicesScreen()))),
                   const SizedBox(width: 10),
                   _action('Review work', Icons.rate_review_outlined, _reviewWork),
                   const SizedBox(width: 10),
-                  _action('Record revenue', Icons.trending_up, () => setState(() => _page = 3)),
+                  _action('Record revenue', Icons.trending_up, () => setState(() => _page = 4)),
                   const SizedBox(width: 10),
-                  _action('Record expense', Icons.trending_down, () => setState(() => _page = 3)),
+                  _action('Record expense', Icons.trending_down, () => setState(() => _page = 4)),
                 ]),
               ),
             ],
@@ -348,7 +384,9 @@ class _AdministrativeDashboardScreenState
                   leading: CircleAvatar(backgroundColor: AppColors.primary.withOpacity(.1), child: const Icon(Icons.task_alt_outlined, color: AppColors.primary)),
                   title: Text(task.title),
                   subtitle: Text(
-                    '${task.clientName} · ${MaterialLocalizations.of(context).formatMediumDate(task.dueAt)}',
+                    '${task.clientName} · Due '
+                    '${MaterialLocalizations.of(context).formatMediumDate(task.dueAt)}'
+                    ' · ${_countdown(task.dueAt)}',
                   ),
                   trailing: _TaskStatus(task: task),
                   onTap: task.needsReview
@@ -372,40 +410,89 @@ class _AdministrativeDashboardScreenState
               icon: const Icon(Icons.add),
               label: const Text('Create Task'),
             ),
-            const SizedBox(height: 22),
-            _Title('Obligations', trailing: 'View all', onTap: _obligations),
-            if (provider.obligations.isEmpty && !provider.isLoading)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 20),
-                child: Text('No active obligations for this business.'),
-              ),
-            ...provider.obligations
-                .where((obligation) => !obligation.isCompleted)
-                .map((obligation) => ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.event_repeat_outlined),
-                      title: Text(obligation.title),
-                      subtitle: Text(
-                        '${obligation.clientName} · ${MaterialLocalizations.of(context).formatMediumDate(obligation.dueAt)}',
-                      ),
-                      trailing: IconButton(
-                        tooltip: 'Complete obligation',
-                        icon: const Icon(Icons.check_circle_outline),
-                        onPressed: () async {
-                          try {
-                            await provider.completeObligationLive(obligation.id);
-                          } catch (error) {
-                            if (mounted) {
-                              _message('Unable to complete obligation: $error');
-                            }
-                          }
-                        },
-                      ),
-                    )),
             ],
           ),
         ),
       );
+
+  Widget _obligationsTab() => Consumer<AdministrativeProvider>(
+        builder: (context, provider, _) => RefreshIndicator(
+          onRefresh: provider.refreshWorkspace,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text('Recurring obligations',
+                        style: Theme.of(context).textTheme.titleLarge),
+                  ),
+                  IconButton(
+                    tooltip: 'Create obligation',
+                    onPressed: _obligations,
+                    icon: const Icon(Icons.add),
+                  ),
+                ],
+              ),
+              const Text(
+                'Recurring compliance and business duties, separate from one-off worker tasks.',
+              ),
+              const SizedBox(height: 12),
+              if (provider.isLoading) const LinearProgressIndicator(),
+              if (provider.obligations.isEmpty && !provider.isLoading)
+                const _InlineEmpty(
+                  icon: Icons.event_repeat_outlined,
+                  message: 'No obligations have been created yet.',
+                ),
+              ...provider.obligations
+                  .where((obligation) => !obligation.isCompleted)
+                  .map((obligation) {
+                final dueDate = MaterialLocalizations.of(context)
+                    .formatMediumDate(obligation.dueAt);
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    leading: const Icon(Icons.event_repeat_outlined),
+                    title: Text(obligation.title),
+                    subtitle: Text(
+                      '${obligation.clientName} · Due $dueDate · '
+                      '${_countdown(obligation.dueAt)}',
+                    ),
+                    trailing: IconButton(
+                      tooltip: 'Complete this period',
+                      icon: const Icon(Icons.check_circle_outline),
+                      onPressed: () async {
+                        try {
+                          await provider.completeObligationLive(obligation.id);
+                          if (mounted) _message('Obligation period completed.');
+                        } catch (error) {
+                          if (mounted) {
+                            _message('Unable to complete obligation: $error');
+                          }
+                        }
+                      },
+                    ),
+                  ),
+                );
+              }),
+            ],
+          ),
+        ),
+      );
+
+  String _countdown(DateTime dueAt) {
+    final remaining = dueAt.difference(DateTime.now());
+    if (remaining.isNegative) {
+      return 'Overdue by ${remaining.inDays.abs().clamp(1, 9999)} days';
+    }
+    if (remaining.inDays == 0) {
+      return remaining.inHours > 0
+          ? '${remaining.inHours} hours remaining'
+          : 'Due soon';
+    }
+    return '${remaining.inDays} days remaining';
+  }
 
   Future<void> _createTask() async {
     final provider = context.read<AdministrativeProvider>();
@@ -741,7 +828,7 @@ class _AdministrativeDashboardScreenState
       ),
     );
     if (client != null && mounted) {
-      setState(() => _page = 2);
+      setState(() => _page = 3);
       _message('${client.name} added');
     }
   }

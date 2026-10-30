@@ -10,6 +10,15 @@ const { requireBusinessReadAccess } = require('../middleware/auth');
 module.exports = function(pool) {
   router.use('/:businessId', requireBusinessReadAccess(pool));
 
+  const requireBakeryApprovalRole = (req, res, next) => {
+    const membership = req.businessMembership || {};
+    const role = String(membership.role || '').trim().toLowerCase();
+    if (membership.is_owner || ['owner', 'admin', 'sub_admin', 'manager'].includes(role)) {
+      return next();
+    }
+    return res.status(403).json({ error: 'Only a business owner, admin, or manager can approve bakery inventory requests' });
+  };
+
   // GET /api/inventory/:businessId - List inventory items
   router.get('/:businessId', pagination, asyncHandler(async (req, res) => {
     const { businessId } = req.params;
@@ -94,7 +103,7 @@ module.exports = function(pool) {
   // production assignments issued to bakers.
   router.get('/:businessId/bakery-resupplies', pagination, asyncHandler(async (req, res) => {
     const { businessId } = req.params;
-    const { baker_id } = req.query;
+    const { baker_id, status } = req.query;
     const { limit, offset } = req.pagination;
 
     let query = 'SELECT * FROM bakery_resupplies WHERE business_id = $1';
@@ -105,12 +114,276 @@ module.exports = function(pool) {
       query += ` AND baker_id = $${paramIndex++}`;
       params.push(baker_id);
     }
+    if (status) {
+      query += ` AND status = $${paramIndex++}`;
+      params.push(status);
+    }
 
     query += ` ORDER BY created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex}`;
     params.push(limit, offset);
 
     const result = await pool.query(query, params);
     res.json({ data: result.rows });
+  }));
+
+  // Create pending ingredient-issue requests without changing stock.
+  router.post('/:businessId/bakery-resupplies', requireFields('items'), asyncHandler(async (req, res) => {
+    const { businessId } = req.params;
+    const { items, baker_id, baker_name, notes, performed_by_id, performed_by_name,
+      expected_production_amount, actual_production_amount, production_unit } = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'At least one inventory item is required' });
+    }
+    for (const item of items) {
+      if (!item.inventory_id || !(Number(item.quantity) > 0) || !Number.isFinite(Number(item.quantity))) {
+        return res.status(400).json({ error: 'Every item must have an inventory selection and a quantity greater than zero' });
+      }
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const created = [];
+      for (const item of items) {
+        const inventory = await client.query(
+          'SELECT id, name, unit FROM inventory WHERE id = $1 AND business_id = $2 AND is_active = true',
+          [item.inventory_id, businessId]
+        );
+        if (inventory.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: `Inventory item ${item.inventory_id} was not found` });
+        }
+        const product = inventory.rows[0];
+        const result = await client.query(
+          `INSERT INTO bakery_resupplies (
+             business_id, inventory_id, inventory_name, quantity, unit, baker_id, baker_name, notes,
+             performed_by_id, performed_by_name, expected_production_amount, actual_production_amount,
+             production_unit, production_item_name, status
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $3, 'pending')
+           RETURNING *`,
+          [
+            businessId, product.id, product.name, Number(item.quantity), product.unit || null,
+            baker_id || null, baker_name || null, notes || null, performed_by_id || null,
+            performed_by_name || null, Number(expected_production_amount) || 0,
+            Number(actual_production_amount) || 0, production_unit || product.unit || null,
+          ]
+        );
+        created.push(result.rows[0]);
+      }
+      await client.query('COMMIT');
+      return res.status(201).json({ data: created });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }));
+
+  router.put('/:businessId/bakery-resupplies/:id', requireFields('inventory_id', 'quantity'), asyncHandler(async (req, res) => {
+    const { businessId, id } = req.params;
+    const quantity = Number(req.body.quantity);
+    if (!(quantity > 0) || !Number.isFinite(quantity)) {
+      return res.status(400).json({ error: 'Quantity must be greater than zero' });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const pending = await client.query(
+        'SELECT id FROM bakery_resupplies WHERE id = $1 AND business_id = $2 AND status = $3 FOR UPDATE',
+        [id, businessId, 'pending']
+      );
+      if (pending.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Pending bakery resupply request not found' });
+      }
+      const inventory = await client.query(
+        'SELECT id, name, unit FROM inventory WHERE id = $1 AND business_id = $2 AND is_active = true',
+        [req.body.inventory_id, businessId]
+      );
+      if (inventory.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Inventory item not found' });
+      }
+      const product = inventory.rows[0];
+      const result = await client.query(
+        `UPDATE bakery_resupplies
+         SET inventory_id = $1, inventory_name = $2, unit = $3, quantity = $4,
+             baker_id = $5, baker_name = $6, notes = $7,
+             expected_production_amount = $8, actual_production_amount = $9,
+             updated_at = NOW()
+         WHERE id = $10 AND business_id = $11 AND status = 'pending'
+         RETURNING *`,
+        [
+          product.id, product.name, product.unit || null, quantity,
+          req.body.baker_id || null, req.body.baker_name || null, req.body.notes || null,
+          Number(req.body.expected_production_amount) || 0,
+          Number(req.body.actual_production_amount) || 0, id, businessId,
+        ]
+      );
+      await client.query('COMMIT');
+      return res.json(result.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }));
+
+  router.patch('/:businessId/bakery-resupplies/:id/decision', requireBakeryApprovalRole, requireFields('decision'), asyncHandler(async (req, res) => {
+    const { businessId, id } = req.params;
+    const decision = String(req.body.decision).toLowerCase();
+    if (!['approved', 'rejected'].includes(decision)) {
+      return res.status(400).json({ error: 'Decision must be approved or rejected' });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const request = await client.query(
+        'SELECT * FROM bakery_resupplies WHERE id = $1 AND business_id = $2 FOR UPDATE',
+        [id, businessId]
+      );
+      if (request.rows.length === 0 || request.rows[0].status !== 'pending') {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'Pending bakery resupply request not found' });
+      }
+      const item = request.rows[0];
+      if (decision === 'approved') {
+        const updated = await client.query(
+          `UPDATE inventory SET quantity = quantity - $1, updated_at = NOW()
+           WHERE id = $2 AND business_id = $3 AND quantity >= $1 RETURNING quantity`,
+          [item.quantity, item.inventory_id, businessId]
+        );
+        if (updated.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({ error: 'Insufficient inventory to approve this resupply request' });
+        }
+        await client.query(
+          `INSERT INTO inventory_history
+             (business_id, inventory_id, change_type, quantity_change, quantity_after, notes, performed_by_id, performed_by_name, metadata)
+           VALUES ($1, $2, 'bakery_resupply', $3, $4, $5, $6, $7, $8)`,
+          [
+            businessId, item.inventory_id, -Math.abs(Number(item.quantity)),
+            updated.rows[0].quantity, item.notes || null, req.user.id,
+            req.user.email || null, JSON.stringify({ resupply_id: id, baker_id: item.baker_id, baker_name: item.baker_name }),
+          ]
+        );
+      }
+      const result = await client.query(
+        `UPDATE bakery_resupplies
+         SET status = $1, approved_by_id = $2, approved_by_name = $3,
+             approved_at = NOW(), decision_notes = $4
+         WHERE id = $5 AND business_id = $6 RETURNING *`,
+        [decision, req.user.id, req.user.email || null, req.body.notes || null, id, businessId]
+      );
+      await client.query('COMMIT');
+      return res.json(result.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }));
+
+  router.get('/:businessId/bakery-spoilage', pagination, asyncHandler(async (req, res) => {
+    const { businessId } = req.params;
+    const { status } = req.query;
+    const { limit, offset } = req.pagination;
+    const params = [businessId];
+    let query = 'SELECT * FROM bakery_spoilage_records WHERE business_id = $1';
+    if (status) {
+      params.push(status);
+      query += ` AND status = $${params.length}`;
+    }
+    params.push(limit, offset);
+    query += ` ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`;
+    const result = await pool.query(query, params);
+    res.json({ data: result.rows });
+  }));
+
+  router.post('/:businessId/bakery-spoilage', requireFields('inventory_id', 'quantity', 'reason'), asyncHandler(async (req, res) => {
+    const { businessId } = req.params;
+    const quantity = Number(req.body.quantity);
+    if (!(quantity > 0) || !Number.isFinite(quantity)) {
+      return res.status(400).json({ error: 'Quantity must be greater than zero' });
+    }
+    const inventory = await pool.query(
+      'SELECT id, name, unit FROM inventory WHERE id = $1 AND business_id = $2 AND is_active = true',
+      [req.body.inventory_id, businessId]
+    );
+    if (inventory.rows.length === 0) return res.status(404).json({ error: 'Inventory item not found' });
+    const product = inventory.rows[0];
+    const result = await pool.query(
+      `INSERT INTO bakery_spoilage_records (
+         business_id, inventory_id, inventory_name, quantity, unit, reason, notes,
+         reported_by_id, reported_by_name, status
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending') RETURNING *`,
+      [
+        businessId, product.id, product.name, quantity, product.unit || null,
+        String(req.body.reason).trim(), req.body.notes || null,
+        req.user.id, req.user.email || null,
+      ]
+    );
+    res.status(201).json(result.rows[0]);
+  }));
+
+  router.patch('/:businessId/bakery-spoilage/:id/decision', requireBakeryApprovalRole, requireFields('decision'), asyncHandler(async (req, res) => {
+    const { businessId, id } = req.params;
+    const decision = String(req.body.decision).toLowerCase();
+    if (!['approved', 'rejected'].includes(decision)) {
+      return res.status(400).json({ error: 'Decision must be approved or rejected' });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const request = await client.query(
+        'SELECT * FROM bakery_spoilage_records WHERE id = $1 AND business_id = $2 FOR UPDATE',
+        [id, businessId]
+      );
+      if (request.rows.length === 0 || request.rows[0].status !== 'pending') {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'Pending spoilage record not found' });
+      }
+      const item = request.rows[0];
+      if (decision === 'approved') {
+        const updated = await client.query(
+          `UPDATE inventory SET quantity = quantity - $1, updated_at = NOW()
+           WHERE id = $2 AND business_id = $3 AND quantity >= $1 RETURNING quantity`,
+          [item.quantity, item.inventory_id, businessId]
+        );
+        if (updated.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({ error: 'Insufficient inventory to approve this spoilage record' });
+        }
+        await client.query(
+          `INSERT INTO inventory_history
+             (business_id, inventory_id, change_type, quantity_change, quantity_after, notes, performed_by_id, performed_by_name, metadata)
+           VALUES ($1, $2, 'bakery_spoilage', $3, $4, $5, $6, $7, $8)`,
+          [
+            businessId, item.inventory_id, -Math.abs(Number(item.quantity)),
+            updated.rows[0].quantity, item.notes || item.reason, req.user.id,
+            req.user.email || null, JSON.stringify({ spoilage_id: id, reason: item.reason }),
+          ]
+        );
+      }
+      const result = await client.query(
+        `UPDATE bakery_spoilage_records
+         SET status = $1, decided_by_id = $2, decided_by_name = $3,
+             decided_at = NOW(), decision_notes = $4
+         WHERE id = $5 AND business_id = $6 RETURNING *`,
+        [decision, req.user.id, req.user.email || null, req.body.notes || null, id, businessId]
+      );
+      await client.query('COMMIT');
+      return res.json(result.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }));
 
   // GET /api/inventory/:businessId/:id - Get single inventory item
@@ -290,71 +563,38 @@ module.exports = function(pool) {
     res.json({ data: result.rows });
   }));
 
-  // POST /api/inventory/:businessId/:id/resupply - Record a bakery-style
-  // production assignment: decreases ingredient stock, records an assignment,
-  // and logs an inventory history entry atomically.
+  // Backward-compatible single-item path; new requests remain pending until approved.
   router.post('/:businessId/:id/resupply', requireFields('quantity'), asyncHandler(async (req, res) => {
     const { businessId, id } = req.params;
     const {
       quantity, baker_id, baker_name, notes, performed_by_id, performed_by_name,
       expected_production_amount, actual_production_amount, production_unit, production_item_name,
     } = req.body;
-
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      const updated = await client.query(
-        `UPDATE inventory SET quantity = quantity - $1, updated_at = NOW()
-         WHERE id = $2 AND business_id = $3 RETURNING *`,
-        [quantity, id, businessId]
-      );
-      if (updated.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ error: 'Inventory item not found' });
-      }
-
-      const historyEntry = await client.query(
-        `INSERT INTO inventory_history
-           (business_id, inventory_id, change_type, quantity_change, quantity_after, notes, performed_by_id, performed_by_name, metadata)
-         VALUES ($1, $2, 'bakery_resupply', $3, $4, $5, $6, $7, $8)
-         RETURNING *`,
-        [
-          businessId, id, -Math.abs(Number(quantity)), updated.rows[0].quantity, notes || null,
-          performed_by_id || null, performed_by_name || null,
-          JSON.stringify({
-            baker_id, baker_name, expected_production_amount,
-            actual_production_amount, production_unit, production_item_name,
-          }),
-        ]
-      );
-
-      const resupplyEntry = await client.query(
-        `INSERT INTO bakery_resupplies (
-           business_id, inventory_id, inventory_name, quantity, unit, baker_id, baker_name, notes,
-           performed_by_id, performed_by_name, expected_production_amount, actual_production_amount,
-           production_unit, production_item_name
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-         RETURNING *`,
-        [
-          businessId, id, updated.rows[0].name || null, quantity, updated.rows[0].unit || null,
-          baker_id || null, baker_name || null, notes || null, performed_by_id || null,
-          performed_by_name || null, expected_production_amount || 0, actual_production_amount || 0,
-          production_unit || updated.rows[0].unit || null, production_item_name || updated.rows[0].name || null,
-        ]
-      );
-
-      await client.query('COMMIT');
-      res.status(201).json({
-        inventory: updated.rows[0],
-        history: historyEntry.rows[0],
-        resupply: resupplyEntry.rows[0],
-      });
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
+    const qty = Number(quantity);
+    if (!(qty > 0) || !Number.isFinite(qty)) {
+      return res.status(400).json({ error: 'Quantity must be greater than zero' });
     }
+    const inventory = await pool.query(
+      'SELECT id, name, unit FROM inventory WHERE id = $1 AND business_id = $2 AND is_active = true',
+      [id, businessId]
+    );
+    if (inventory.rows.length === 0) return res.status(404).json({ error: 'Inventory item not found' });
+    const product = inventory.rows[0];
+    const result = await pool.query(
+      `INSERT INTO bakery_resupplies (
+         business_id, inventory_id, inventory_name, quantity, unit, baker_id, baker_name, notes,
+         performed_by_id, performed_by_name, expected_production_amount, actual_production_amount,
+         production_unit, production_item_name, status
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending')
+       RETURNING *`,
+      [
+        businessId, id, product.name, qty, product.unit || null, baker_id || null,
+        baker_name || null, notes || null, performed_by_id || null, performed_by_name || null,
+        Number(expected_production_amount) || 0, Number(actual_production_amount) || 0,
+        production_unit || product.unit || null, production_item_name || product.name,
+      ]
+    );
+    res.status(201).json({ resupply: result.rows[0] });
   }));
 
   // PATCH /api/inventory/:businessId/assign-store - Bulk-assign a store to
@@ -375,4 +615,3 @@ module.exports = function(pool) {
 
   return router;
 };
-

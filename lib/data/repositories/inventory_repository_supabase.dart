@@ -512,6 +512,7 @@ class InventoryRepositorySupabase implements InventoryRepository {
   Future<List<Map<String, dynamic>>> fetchBakeryResupplies({
     required String businessId,
     String? bakerId,
+    String? status,
     int limit = 100,
   }) async {
     try {
@@ -520,6 +521,7 @@ class InventoryRepositorySupabase implements InventoryRepository {
         queryParameters: {
           'limit': limit,
           if (bakerId != null && bakerId.isNotEmpty) 'baker_id': bakerId,
+          if (status != null && status.isNotEmpty) 'status': status,
         },
         options: Options(headers: _headers),
       );
@@ -547,8 +549,178 @@ class InventoryRepositorySupabase implements InventoryRepository {
         'actualProductionAmount': row['actual_production_amount'],
         'productionUnit': row['production_unit'],
         'productionItemName': row['production_item_name'],
+        'status': row['status'] ?? 'approved',
+        'approvedById': row['approved_by_id'],
+        'approvedByName': row['approved_by_name'],
+        'approvedAt': row['approved_at'],
+        'decisionNotes': row['decision_notes'],
+        'createdById': row['performed_by_id'],
+        'createdByName': row['performed_by_name'],
         'createdAt': row['created_at'],
       };
+
+      Future<void> createBakeryResupplyRequests({
+        required String businessId,
+        required List<Map<String, dynamic>> items,
+        String? bakerId,
+        String? bakerName,
+        String? notes,
+        String? performedById,
+        String? performedByName,
+        num? expectedProductionAmount,
+        num? actualProductionAmount,
+        String? productionUnit,
+      }) async {
+        try {
+          await _http.post(
+            '/inventory/$businessId/bakery-resupplies',
+            data: {
+              'items': items
+                  .map((item) => {
+                        'inventory_id': item['inventoryId'],
+                        'quantity': item['quantity'],
+                      })
+                  .toList(),
+              'baker_id': bakerId,
+              'baker_name': bakerName,
+              'notes': notes,
+              'performed_by_id': performedById,
+              'performed_by_name': performedByName,
+              'expected_production_amount': expectedProductionAmount,
+              'actual_production_amount': actualProductionAmount,
+              'production_unit': productionUnit,
+            },
+            options: Options(headers: _headers),
+          );
+        } on DioException catch (e) {
+          throw Exception('Failed to submit bakery resupply: ${_extractError(e)}');
+        }
+      }
+
+      Future<void> updateBakeryResupply({
+        required String businessId,
+        required String requestId,
+        required String inventoryId,
+        required num quantity,
+        String? bakerId,
+        String? bakerName,
+        String? notes,
+        num? expectedProductionAmount,
+        num? actualProductionAmount,
+      }) async {
+        try {
+          await _http.put(
+            '/inventory/$businessId/bakery-resupplies/$requestId',
+            data: {
+              'inventory_id': inventoryId,
+              'quantity': quantity,
+              'baker_id': bakerId,
+              'baker_name': bakerName,
+              'notes': notes,
+              'expected_production_amount': expectedProductionAmount,
+              'actual_production_amount': actualProductionAmount,
+            },
+            options: Options(headers: _headers),
+          );
+        } on DioException catch (e) {
+          throw Exception('Failed to edit bakery resupply: ${_extractError(e)}');
+        }
+      }
+
+      Future<void> decideBakeryResupply({
+        required String businessId,
+        required String requestId,
+        required String decision,
+        String? notes,
+      }) async {
+        try {
+          await _http.patch(
+            '/inventory/$businessId/bakery-resupplies/$requestId/decision',
+            data: {'decision': decision, 'notes': notes},
+            options: Options(headers: _headers),
+          );
+        } on DioException catch (e) {
+          throw Exception('Failed to $decision bakery resupply: ${_extractError(e)}');
+        }
+      }
+
+      Future<List<Map<String, dynamic>>> fetchBakerySpoilage({
+        required String businessId,
+        String? status,
+        int limit = 100,
+      }) async {
+        try {
+          final response = await _http.get(
+            '/inventory/$businessId/bakery-spoilage',
+            queryParameters: {
+              'limit': limit,
+              if (status != null && status.isNotEmpty) 'status': status,
+            },
+            options: Options(headers: _headers),
+          );
+          final rows =
+              ((response.data['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+          return rows
+              .map((row) => {
+                    'id': row['id'],
+                    'inventoryId': row['inventory_id'],
+                    'inventoryName': row['inventory_name'],
+                    'quantity': row['quantity'],
+                    'unit': row['unit'],
+                    'reason': row['reason'],
+                    'notes': row['notes'],
+                    'reportedByName': row['reported_by_name'],
+                    'status': row['status'],
+                    'decidedByName': row['decided_by_name'],
+                    'decidedAt': row['decided_at'],
+                    'decisionNotes': row['decision_notes'],
+                    'createdAt': row['created_at'],
+                  })
+              .toList();
+        } on DioException catch (e) {
+          throw Exception('Failed to load bakery spoilage: ${_extractError(e)}');
+        }
+      }
+
+      Future<void> createBakerySpoilage({
+        required String businessId,
+        required String inventoryId,
+        required num quantity,
+        required String reason,
+        String? notes,
+      }) async {
+        try {
+          await _http.post(
+            '/inventory/$businessId/bakery-spoilage',
+            data: {
+              'inventory_id': inventoryId,
+              'quantity': quantity,
+              'reason': reason,
+              'notes': notes,
+            },
+            options: Options(headers: _headers),
+          );
+        } on DioException catch (e) {
+          throw Exception('Failed to submit bakery spoilage: ${_extractError(e)}');
+        }
+      }
+
+      Future<void> decideBakerySpoilage({
+        required String businessId,
+        required String recordId,
+        required String decision,
+        String? notes,
+      }) async {
+        try {
+          await _http.patch(
+            '/inventory/$businessId/bakery-spoilage/$recordId/decision',
+            data: {'decision': decision, 'notes': notes},
+            options: Options(headers: _headers),
+          );
+        } on DioException catch (e) {
+          throw Exception('Failed to $decision bakery spoilage: ${_extractError(e)}');
+        }
+      }
 
   // Keys already handled by a dedicated column above (both the camelCase
   // and snake_case spellings a caller might use for each), plus a couple of

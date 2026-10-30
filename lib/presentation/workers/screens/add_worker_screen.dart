@@ -928,6 +928,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     final currentUser = context.watch<AuthProvider>().currentUser;
     final canManageStaff = currentUser != null &&
         WorkerPermissions.canManageStaffForUser(
@@ -1105,7 +1106,10 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                       isFuelStation
                           ? 'Choose one station role. Petroleum workers get a dedicated dashboard based on this role.'
                           : 'Choose one or more roles for this worker.',
-                      style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                      style: TextStyle(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: 12,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Wrap(
@@ -1187,7 +1191,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                                         Text(
                                           _roleDescription(role),
                                           style: TextStyle(
-                                            color: Colors.grey.shade700,
+                                            color: colorScheme.onSurfaceVariant,
                                             fontSize: 12,
                                           ),
                                         ),
@@ -1276,7 +1280,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                           Text(
                             'Select the pump(s) this worker can operate. Pump operators will only see assigned pumps during sales.',
                             style: TextStyle(
-                              color: Colors.grey.shade700,
+                              color: colorScheme.onSurfaceVariant,
                               fontSize: 12,
                             ),
                           ),
@@ -1451,7 +1455,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
+                  color: colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Column(
@@ -1459,7 +1463,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                   children: [
                     Text(
                       'This worker will inherit permissions from the selected role(s).',
-                      style: TextStyle(color: Colors.grey.shade700),
+                      style: TextStyle(color: colorScheme.onSurfaceVariant),
                     ),
                     const SizedBox(height: 8),
                     Wrap(

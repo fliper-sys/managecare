@@ -58,6 +58,7 @@ import '../../industry_specific/administrative/screens/administrative_dashboard_
 import '../../reports/screens/reports_dashboard_screen.dart';
 import '../../settings/screens/profile_screen.dart';
 import 'package:business_manager/core/utils/formatters.dart';
+import 'welcome_back_dialog.dart';
 
 class OwnerDashboardScreen extends StatefulWidget {
   const OwnerDashboardScreen({super.key});
@@ -408,6 +409,7 @@ class _HomeTab extends StatefulWidget {
 }
 
 class _HomeTabState extends State<_HomeTab> {
+  bool _welcomeBackScheduled = false;
   late TextEditingController _searchController;
   late List<_QuickActionItem> _allItems;
   late List<_QuickActionItem> _filteredItems;
@@ -889,6 +891,18 @@ Future<void> _loadRetailMetrics(String businessId) async {
     final liveWorkersCount = context.watch<WorkersProvider>().workers.length;
     final user = authProvider.currentUser;
     final business = businessProvider.currentBusiness;
+    if (!_welcomeBackScheduled && user?.isOwner == true && business != null) {
+      _welcomeBackScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          showWelcomeBackDialogIfEnabled(
+            context: context,
+            user: user!,
+            business: business,
+          );
+        }
+      });
+    }
     final isAdministrativeBusiness =
         BusinessTypes.getById(business?.businessType ?? '')?.id ==
             'administrative';

@@ -3051,7 +3051,8 @@ app.post('/api/subscriptions/validate/:businessId', authMiddleware, requireBusin
 // ── Admin API (service-role protected) ─────────────────────
 app.post('/admin-api/workers', authMiddleware, async (req, res) => {
   // This endpoint is called from Flutter's AuthenticationService.createWorkerUser
-  try {
+  return runWithUser(req.user.id, async () => {
+    try {
     const { business_id, email, password, full_name, phone, role, permissions } = req.body;
     if (!business_id) {
       return res.status(400).json({ error: 'business_id is required' });
@@ -3075,6 +3076,12 @@ app.post('/admin-api/workers', authMiddleware, async (req, res) => {
     }
 
     const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail || typeof password !== 'string' || password.length === 0) {
+      return res.status(400).json({ error: 'A valid email and password are required' });
+    }
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return res.status(503).json({ error: 'Worker authentication is not configured on the server' });
+    }
     const hash = await bcrypt.hash(password, 10);
 
     const client = await pool.connect();
@@ -3144,16 +3151,37 @@ app.post('/admin-api/workers', authMiddleware, async (req, res) => {
       );
 
       await client.query('COMMIT');
-      res.status(201).json(workerResult.rows[0]);
+      const worker = workerResult.rows[0];
+      try {
+        const migration = new LegacyAuthMigration({
+          pool,
+          runWithUser,
+          supabaseUrl: process.env.SUPABASE_URL,
+          serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+        });
+        await migration.migrate({ email: normalizedEmail, password });
+      } catch (authError) {
+        console.error('[Worker Creation] Auth provisioning failed', {
+          workerId: worker.id,
+          businessId: business_id,
+          status: authError.status || null,
+        });
+        return res.status(502).json({
+          error: 'Worker was saved, but login setup failed. Retry creating the worker with the same email and password.',
+          worker_saved: true,
+        });
+      }
+      res.status(201).json(worker);
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;
     } finally {
       client.release();
     }
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
 });
 
 // ── Error handler (must be last) ────────────────────────────

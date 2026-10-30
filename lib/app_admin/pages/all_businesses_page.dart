@@ -236,7 +236,8 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
     final name = business['name'] ?? 'Unknown';
     final owner = business['ownerName'] ?? 'Unknown';
     final type = business['businessType'] ?? 'General';
-    final businessClass = business['businessClass']?.toString().toLowerCase() ?? 'tier1';
+    final businessClass =
+        business['businessClass']?.toString().toLowerCase() ?? 'tier1';
     final isActive = business['isActive'] ?? true;
     final isDeleted = business['isDeleted'] == true;
     final workers = business['totalWorkers'] ?? 0;
@@ -339,8 +340,8 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
                         fontWeight: FontWeight.w600,
                         color: Colors.red,
                       ),
-                      ),
                     ),
+                  ),
                 if (isDeleted) ...[
                   const SizedBox(width: 8),
                   Container(
@@ -399,7 +400,8 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
     final admin = Provider.of<AdminProvider>(context, listen: false);
     final emailSvc = EmailService();
 
-    messenger.showSnackBar(const SnackBar(content: Text('Preparing combined report...')));
+    messenger.showSnackBar(
+        const SnackBar(content: Text('Preparing combined report...')));
 
     // Build a map of selected business objects
     final selected = admin.allBusinesses.where((b) {
@@ -408,7 +410,8 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
     }).toList();
 
     if (selected.isEmpty) {
-      messenger.showSnackBar(const SnackBar(content: Text('No selected businesses available')));
+      messenger.showSnackBar(
+          const SnackBar(content: Text('No selected businesses available')));
       return;
     }
 
@@ -417,14 +420,14 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
     final List<String> skipped = [];
 
     for (var b in selected) {
-      String? ownerEmail =
-          (b['ownerEmail'] ?? b['owner_email'] ?? b['email'])?.toString().trim();
+      String? ownerEmail = (b['ownerEmail'] ?? b['owner_email'] ?? b['email'])
+          ?.toString()
+          .trim();
       if ((ownerEmail == null || ownerEmail.isEmpty) &&
           (b['ownerId'] != null || b['owner_id'] != null)) {
         final ownerId = (b['ownerId'] ?? b['owner_id'])?.toString();
-        final ownerUser = admin.allUsers.firstWhere(
-            (u) => (u['id'] ?? '') == ownerId,
-            orElse: () => {});
+        final ownerUser = admin.allUsers
+            .firstWhere((u) => (u['id'] ?? '') == ownerId, orElse: () => {});
         ownerEmail = ownerUser['email']?.toString().trim();
       }
       if (ownerEmail == null || ownerEmail.isEmpty) {
@@ -435,7 +438,9 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
     }
 
     if (byOwner.isEmpty) {
-      messenger.showSnackBar(SnackBar(content: Text('No owner emails found for selected businesses. Skipped: ${skipped.join(', ')}')));
+      messenger.showSnackBar(SnackBar(
+          content: Text(
+              'No owner emails found for selected businesses. Skipped: ${skipped.join(', ')}')));
       return;
     }
 
@@ -450,21 +455,26 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
       for (var b in bizList) {
         final bizId = (b['id'] ?? b['businessId'])?.toString() ?? '';
         try {
-          final summary = await admin.getDailySalesSummary(bizId, DateTime.now());
-          final txs = List<Map<String, dynamic>>.from((summary['transactions'] ?? []));
+          final summary =
+              await admin.getDailySalesSummary(bizId, DateTime.now());
+          final txs =
+              List<Map<String, dynamic>>.from((summary['transactions'] ?? []));
           final bizName = b['name'] ?? bizId;
           for (var t in txs) {
-            final total = (t['total'] ?? t['totalAmount'] ?? t['amount'] ?? 0).toDouble();
+            final total =
+                (t['total'] ?? t['totalAmount'] ?? t['amount'] ?? 0).toDouble();
             final cashier = t['cashier'] ?? t['cashierName'] ?? '';
             final createdAt = t['createdAt'] ?? t['createdAt'] ?? '';
             final rawItems = t['items'] as List<dynamic>? ?? [];
             final itemSummary = rawItems.map((it) {
-              final nm = it['productName'] ?? it['product_name'] ?? it['name'] ?? '';
+              final nm =
+                  it['productName'] ?? it['product_name'] ?? it['name'] ?? '';
               final qty = (it['quantity'] ?? it['qty'] ?? 0);
               return '$nm x$qty';
             }).join(', ');
             combinedTransactions.add({
-              'note': '$bizName • ${createdAt.toString()} • $cashier • $itemSummary',
+              'note':
+                  '$bizName • ${createdAt.toString()} • $cashier • $itemSummary',
               'amount': total,
             });
           }
@@ -474,8 +484,12 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
       }
 
       // Prepare email payload
-      final bizNames = bizList.map((b) => b['name'] ?? '').where((s) => (s ?? '').toString().isNotEmpty).toList();
-      final businessNameForEmail = bizNames.isEmpty ? 'Multiple Businesses' : bizNames.join(', ');
+      final bizNames = bizList
+          .map((b) => b['name'] ?? '')
+          .where((s) => (s ?? '').toString().isNotEmpty)
+          .toList();
+      final businessNameForEmail =
+          bizNames.isEmpty ? 'Multiple Businesses' : bizNames.join(', ');
       final dateStr = DateTime.now().toIso8601String().split('T').first;
 
       final data = {
@@ -484,12 +498,18 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
         'transactions': combinedTransactions,
       };
 
-      messenger.showSnackBar(SnackBar(content: Text('Sending combined report to $ownerEmail...')));
-      final ok = await emailSvc.sendTemplateEmail('daily_transactions', ownerEmail, data, subject: 'Daily Transactions Report — $dateStr');
+      messenger.showSnackBar(
+          SnackBar(content: Text('Sending combined report to $ownerEmail...')));
+      final ok = await emailSvc.sendTemplateEmail(
+          'daily_transactions', ownerEmail, data,
+          subject: 'Daily Transactions Report — $dateStr');
       if (!ok) allOk = false;
     }
 
-    messenger.showSnackBar(SnackBar(content: Text(allOk ? 'Combined daily reports sent.' : 'Some reports failed to send.')));
+    messenger.showSnackBar(SnackBar(
+        content: Text(allOk
+            ? 'Combined daily reports sent.'
+            : 'Some reports failed to send.')));
 
     // Clear selection after send
     setState(() {
@@ -503,13 +523,14 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
       final name = business['name']?.toString().toLowerCase() ?? '';
       final owner = business['ownerName']?.toString().toLowerCase() ?? '';
       final type = business['businessType']?.toString().toLowerCase() ?? '';
-      final businessClass = business['businessClass']?.toString().toLowerCase() ?? 'tier1';
+      final businessClass =
+          business['businessClass']?.toString().toLowerCase() ?? 'tier1';
       final isRestricted = business['isRestricted'] == true ||
-          (business['restrictionStatus']?.toString().toLowerCase() == 'restricted');
+          (business['restrictionStatus']?.toString().toLowerCase() ==
+              'restricted');
       final hasActiveSubscription = business['isSubscriptionActive'] == true ||
           business['hasActiveSubscription'] == true;
-      final isActive =
-          (business['isActive'] ?? true) == true &&
+      final isActive = (business['isActive'] ?? true) == true &&
           !isRestricted &&
           business['isDeleted'] != true &&
           hasActiveSubscription;
@@ -519,7 +540,8 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
           owner.contains(searchQuery) ||
           type.contains(searchQuery);
 
-      final matchesTier = _filterTier == 'all' || businessClass.contains(_filterTier.toLowerCase());
+      final matchesTier = _filterTier == 'all' ||
+          businessClass.contains(_filterTier.toLowerCase());
       final matchesActive = !_filterActive || isActive;
 
       return matchesSearch && matchesTier && matchesActive;
@@ -537,7 +559,8 @@ class BusinessDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final businessClass = business['businessClass']?.toString().toLowerCase() ?? 'tier1';
+    final businessClass =
+        business['businessClass']?.toString().toLowerCase() ?? 'tier1';
     final isDeleted = business['isDeleted'] == true;
     Color tierColor;
     if (businessClass == 'tier3') {
@@ -617,10 +640,12 @@ class BusinessDetailPage extends StatelessWidget {
               context,
               'Business Information',
               [
-                _buildInfoRow(context, 'Owner Name', business['ownerName'] ?? '-'),
+                _buildInfoRow(
+                    context, 'Owner Name', business['ownerName'] ?? '-'),
                 _buildInfoRow(context, 'Email', business['email'] ?? '-'),
                 _buildInfoRow(context, 'Phone', business['phone'] ?? '-'),
-                _buildInfoRow(context, 'Business Type', business['businessType'] ?? '-'),
+                _buildInfoRow(
+                    context, 'Business Type', business['businessType'] ?? '-'),
                 _buildInfoRow(
                   context,
                   'Total Workers',
@@ -645,19 +670,22 @@ class BusinessDetailPage extends StatelessWidget {
                       ),
                     ),
                     ElevatedButton.icon(
-                      onPressed: () => _showEditSubscriptionDialog(context, business),
+                      onPressed: () =>
+                          _showEditSubscriptionDialog(context, business),
                       icon: const Icon(Icons.edit, size: 16),
                       label: const Text('Edit'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF3B82F6),
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 12),
-                _buildInfoRow(context, 'Business Class', businessClass.toUpperCase()),
+                _buildInfoRow(
+                    context, 'Business Class', businessClass.toUpperCase()),
                 _buildInfoRow(
                   context,
                   'Status',
@@ -665,12 +693,10 @@ class BusinessDetailPage extends StatelessWidget {
                       ? 'Deleted (admin recovery only)'
                       : (business['isActive'] == true ? 'Active' : 'Inactive'),
                 ),
-                _buildInfoRow(
-                    context,
-                    'Created At', _formatTimestamp(business['createdAt'])),
-                _buildInfoRow(
-                    context,
-                    'Updated At', _formatTimestamp(business['updatedAt'])),
+                _buildInfoRow(context, 'Created At',
+                    _formatTimestamp(business['createdAt'])),
+                _buildInfoRow(context, 'Updated At',
+                    _formatTimestamp(business['updatedAt'])),
               ],
             ),
             const SizedBox(height: 20),
@@ -705,7 +731,9 @@ class BusinessDetailPage extends StatelessWidget {
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: isDeleted ? null : () => _editBusiness(context, business),
+                    onPressed: isDeleted
+                        ? null
+                        : () => _editBusiness(context, business),
                     icon: const Icon(Icons.edit),
                     label: const Text('Edit'),
                     style: ElevatedButton.styleFrom(
@@ -718,7 +746,9 @@ class BusinessDetailPage extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: isDeleted ? null : () => _toggleStatus(context, business),
+                    onPressed: isDeleted
+                        ? null
+                        : () => _toggleStatus(context, business),
                     icon: const Icon(Icons.power_settings_new),
                     label: Text(
                       business['isActive'] == true ? 'Deactivate' : 'Activate',
@@ -733,7 +763,8 @@ class BusinessDetailPage extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: isDeleted ? null : () => _showDailySales(context),
+                    onPressed:
+                        isDeleted ? null : () => _showDailySales(context),
                     icon: const Icon(Icons.message),
                     label: const Text('Daily Sales'),
                     style: OutlinedButton.styleFrom(
@@ -771,36 +802,50 @@ class BusinessDetailPage extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: isDeleted ? null : () async {
-                  final admin = Provider.of<AdminProvider>(context, listen: false);
-                  final businessId = business['id'] ?? business['businessId'];
-                  final confirmed = await showDialog<bool>(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      title: const Text('Grant Yearly Subscription'),
-                      content: const Text('Activate a yearly subscription for all workers of this business? This will mark their records to avoid access restrictions.'),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                        ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Confirm')),
-                      ],
-                    ),
-                  );
-                  if (confirmed != true) return;
+                onPressed: isDeleted
+                    ? null
+                    : () async {
+                        final admin =
+                            Provider.of<AdminProvider>(context, listen: false);
+                        final businessId =
+                            business['id'] ?? business['businessId'];
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Grant Yearly Subscription'),
+                            content: const Text(
+                                'Activate a yearly subscription for all workers of this business? This will mark their records to avoid access restrictions.'),
+                            actions: [
+                              TextButton(
+                                  onPressed: () => Navigator.pop(ctx, false),
+                                  child: const Text('Cancel')),
+                              ElevatedButton(
+                                  onPressed: () => Navigator.pop(ctx, true),
+                                  child: const Text('Confirm')),
+                            ],
+                          ),
+                        );
+                        if (confirmed != true) return;
 
-                  // show progress
-                  showDialog(
-                    context: context,
-                    barrierDismissible: false,
-                    builder: (ctx) => const Center(child: CircularProgressIndicator()),
-                  );
+                        // show progress
+                        showDialog(
+                          context: context,
+                          barrierDismissible: false,
+                          builder: (ctx) =>
+                              const Center(child: CircularProgressIndicator()),
+                        );
 
-                  final ok = await admin.activateYearlySubscriptionForWorkers(businessId);
+                        final ok = await admin
+                            .activateYearlySubscriptionForWorkers(businessId);
 
-                  Navigator.pop(context); // remove progress
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(ok ? 'Workers updated with yearly subscription.' : 'Failed to update workers.')),
-                  );
-                },
+                        Navigator.pop(context); // remove progress
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                              content: Text(ok
+                                  ? 'Workers updated with yearly subscription.'
+                                  : 'Failed to update workers.')),
+                        );
+                      },
                 icon: const Icon(Icons.workspace_premium),
                 label: const Text('Grant Yearly Subscription to Workers'),
                 style: ElevatedButton.styleFrom(
@@ -816,20 +861,22 @@ class BusinessDetailPage extends StatelessWidget {
     );
   }
 
-  void _showEditSubscriptionDialog(BuildContext context, Map<String, dynamic> business) {
+  void _showEditSubscriptionDialog(
+      BuildContext context, Map<String, dynamic> business) {
     final businessId = business['id'] ?? business['businessId'];
-    final currentClass = business['businessClass']?.toString().toLowerCase() ?? 'tier1';
+    final currentClass =
+        business['businessClass']?.toString().toLowerCase() ?? 'tier1';
     final isActive = business['isActive'] ?? true;
     final maxWorkers = (business['maxWorkers'] ?? 50) as int;
     final rawFeatures = business['features'];
     final currentFeatures =
         List<String>.from(rawFeatures is List ? rawFeatures : []);
-    
+
     String selectedClass = currentClass;
     bool selectedActive = isActive;
     int selectedMaxWorkers = maxWorkers;
     List<String> selectedFeatures = [...currentFeatures];
-    
+
     final availableFeatures = [
       'Inventory Management',
       'Customer Database',
@@ -847,7 +894,8 @@ class BusinessDetailPage extends StatelessWidget {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setState) => Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -856,7 +904,8 @@ class BusinessDetailPage extends StatelessWidget {
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: const Color(0xFF3B82F6),
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(12)),
                   ),
                   child: Row(
                     children: [
@@ -881,7 +930,9 @@ class BusinessDetailPage extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Business Class
-                      const Text('Business Class', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                      const Text('Business Class',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 14)),
                       const SizedBox(height: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -900,8 +951,13 @@ class BusinessDetailPage extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Text('Tier 1 - Basic', style: TextStyle(fontWeight: FontWeight.w500)),
-                                  Text('50 workers, Basic features', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                                  const Text('Tier 1 - Basic',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.w500)),
+                                  Text('50 workers, Basic features',
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[600])),
                                 ],
                               ),
                             ),
@@ -911,8 +967,13 @@ class BusinessDetailPage extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Text('Tier 2 - Professional', style: TextStyle(fontWeight: FontWeight.w500)),
-                                  Text('200 workers, Advanced features', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                                  const Text('Tier 2 - Professional',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.w500)),
+                                  Text('200 workers, Advanced features',
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[600])),
                                 ],
                               ),
                             ),
@@ -922,8 +983,13 @@ class BusinessDetailPage extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Text('Tier 3 - Enterprise', style: TextStyle(fontWeight: FontWeight.w500)),
-                                  Text('Unlimited workers, All features', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                                  const Text('Tier 3 - Enterprise',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.w500)),
+                                  Text('Unlimited workers, All features',
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[600])),
                                 ],
                               ),
                             ),
@@ -933,9 +999,12 @@ class BusinessDetailPage extends StatelessWidget {
                               setState(() {
                                 selectedClass = value;
                                 // Auto-update max workers based on tier
-                                if (value == 'tier1') selectedMaxWorkers = 50;
-                                else if (value == 'tier2') selectedMaxWorkers = 200;
-                                else selectedMaxWorkers = 999;
+                                if (value == 'tier1')
+                                  selectedMaxWorkers = 50;
+                                else if (value == 'tier2')
+                                  selectedMaxWorkers = 200;
+                                else
+                                  selectedMaxWorkers = 999;
                               });
                             }
                           },
@@ -944,22 +1013,30 @@ class BusinessDetailPage extends StatelessWidget {
                       const SizedBox(height: 20),
 
                       // Max Workers
-                      const Text('Max Workers Allowed', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                      const Text('Max Workers Allowed',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 14)),
                       const SizedBox(height: 8),
                       Row(
                         children: [
                           Expanded(
                             child: TextField(
                               keyboardType: TextInputType.number,
-                              controller: TextEditingController(text: selectedMaxWorkers.toString()),
+                              controller: TextEditingController(
+                                  text: selectedMaxWorkers.toString()),
                               onChanged: (value) {
-                                final parsed = int.tryParse(value) ?? selectedMaxWorkers;
+                                final parsed =
+                                    int.tryParse(value) ?? selectedMaxWorkers;
                                 setState(() => selectedMaxWorkers = parsed);
                               },
                               decoration: InputDecoration(
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                suffix: Text(selectedClass == 'tier3' ? '(Unlimited)' : ''),
+                                border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8)),
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 10),
+                                suffix: Text(selectedClass == 'tier3'
+                                    ? '(Unlimited)'
+                                    : ''),
                               ),
                             ),
                           ),
@@ -968,21 +1045,30 @@ class BusinessDetailPage extends StatelessWidget {
                       const SizedBox(height: 20),
 
                       // Status
-                      const Text('Subscription Status', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                      const Text('Subscription Status',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 14)),
                       const SizedBox(height: 8),
                       SwitchListTile(
                         title: Text(selectedActive ? 'Active' : 'Inactive'),
-                        subtitle: Text(selectedActive ? 'Business can access all features' : 'Business access restricted'),
+                        subtitle: Text(selectedActive
+                            ? 'Business can access all features'
+                            : 'Business access restricted'),
                         value: selectedActive,
-                        onChanged: (value) => setState(() => selectedActive = value),
+                        onChanged: (value) =>
+                            setState(() => selectedActive = value),
                         contentPadding: EdgeInsets.zero,
-                        tileColor: selectedActive ? Colors.green[50] : Colors.red[50],
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        tileColor:
+                            selectedActive ? Colors.green[50] : Colors.red[50],
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
                       ),
                       const SizedBox(height: 20),
 
                       // Features
-                      const Text('Enabled Features', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                      const Text('Enabled Features',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 14)),
                       const SizedBox(height: 8),
                       Container(
                         padding: const EdgeInsets.all(12),
@@ -994,7 +1080,8 @@ class BusinessDetailPage extends StatelessWidget {
                           spacing: 8,
                           runSpacing: 8,
                           children: availableFeatures.map((feature) {
-                            final isSelected = selectedFeatures.contains(feature);
+                            final isSelected =
+                                selectedFeatures.contains(feature);
                             return FilterChip(
                               label: Text(feature),
                               selected: isSelected,
@@ -1022,7 +1109,8 @@ class BusinessDetailPage extends StatelessWidget {
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
@@ -1034,7 +1122,7 @@ class BusinessDetailPage extends StatelessWidget {
                       ElevatedButton(
                         onPressed: () async {
                           final messenger = ScaffoldMessenger.of(context);
-                          
+
                           try {
                             final admin = Provider.of<AdminProvider>(
                               context,
@@ -1050,10 +1138,11 @@ class BusinessDetailPage extends StatelessWidget {
                               throw Exception(admin.errorMessage ??
                                   'Unable to update business');
                             }
-                            
+
                             messenger.showSnackBar(
                               const SnackBar(
-                                content: Text('✓ Subscription details updated successfully'),
+                                content: Text(
+                                    '✓ Subscription details updated successfully'),
                                 backgroundColor: Color(0xFF10B981),
                               ),
                             );
@@ -1084,30 +1173,36 @@ class BusinessDetailPage extends StatelessWidget {
     );
   }
 
-  Widget _buildWorkersList(BuildContext context, Map<String, dynamic> business) {
+  Widget _buildWorkersList(
+      BuildContext context, Map<String, dynamic> business) {
     final admin = Provider.of<AdminProvider>(context, listen: false);
-    final businessId = (business['id'] ?? business['businessId'])?.toString() ?? '';
-    
+    final businessId =
+        (business['id'] ?? business['businessId'])?.toString() ?? '';
+
     // Get workers - they may not have role='worker', try multiple conditions
     final workers = admin.allUsers.where((u) {
-      final uBusinessId = (u['businessId'] ?? '').toString();
+      final uBusinessId =
+          (u['businessId'] ?? u['currentBusinessId'] ?? '').toString();
       final uRole = (u['role'] ?? '').toString().toLowerCase();
       final uType = (u['userType'] ?? '').toString().toLowerCase();
-      
+
       // Match if businessId matches AND (role is 'worker' OR userType is 'worker' OR role is not 'owner'/'admin')
-      return uBusinessId == businessId && 
-             (uRole == 'worker' || uType == 'worker' || (uRole != 'owner' && uRole != 'admin' && uRole.isNotEmpty));
+      return uBusinessId == businessId &&
+          (u['isWorker'] == true ||
+              uRole == 'worker' ||
+              uType == 'worker' ||
+              (uRole != 'owner' && uRole != 'admin' && uRole.isNotEmpty));
     }).toList();
 
     if (workers.isEmpty) {
-      final totalWorkers = (business['totalWorkers'] ?? 0) as int;
+      final totalWorkers = (business['totalWorkers'] as num?)?.toInt() ?? 0;
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 8.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              totalWorkers > 0 
+              totalWorkers > 0
                   ? 'Loading workers... ($totalWorkers expected)'
                   : 'No workers assigned to this business.',
               style: TextStyle(
@@ -1130,7 +1225,8 @@ class BusinessDetailPage extends StatelessWidget {
             children: [
               Text(
                 'Total Workers: ${workers.length}',
-                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                style:
+                    const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -1140,7 +1236,10 @@ class BusinessDetailPage extends StatelessWidget {
                 ),
                 child: Text(
                   '${(workers.where((w) => (w['hasActiveSubscription'] == true) || (parseTimestamp(w['subscriptionEndDate']).isAfter(DateTime.now()))).length)}/${workers.length} Active',
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFF3B82F6)),
+                  style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF3B82F6)),
                 ),
               ),
             ],
@@ -1152,12 +1251,19 @@ class BusinessDetailPage extends StatelessWidget {
             itemCount: workers.length,
             itemBuilder: (ctx, i) {
               final w = workers[i];
-              final name = (w['name'] ?? w['displayName'] ?? w['email'] ?? 'Worker').toString();
+              final name =
+                  (w['name'] ?? w['displayName'] ?? w['email'] ?? 'Worker')
+                      .toString();
               final email = (w['email'] ?? '').toString();
               final phone = (w['phone'] ?? '').toString();
               final role = (w['role'] ?? w['userType'] ?? 'worker').toString();
-              final hasActive = (w['hasActiveSubscription'] == true) || (parseTimestamp(w['subscriptionEndDate']).isAfter(DateTime.now()) == true);
-              final joinDate = w['createdAt'] != null ? _formatTimestamp(w['createdAt']) : 'Unknown';
+              final hasActive = (w['hasActiveSubscription'] == true) ||
+                  (parseTimestamp(w['subscriptionEndDate'])
+                          .isAfter(DateTime.now()) ==
+                      true);
+              final joinDate = w['createdAt'] != null
+                  ? _formatTimestamp(w['createdAt'])
+                  : 'Unknown';
 
               return Container(
                 margin: const EdgeInsets.only(bottom: 8),
@@ -1168,12 +1274,15 @@ class BusinessDetailPage extends StatelessWidget {
                 ),
                 child: ListTile(
                   dense: false,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   leading: CircleAvatar(
                     backgroundColor: const Color(0xFF3B82F6).withOpacity(0.1),
                     child: Text(
                       name.isNotEmpty ? name[0].toUpperCase() : 'W',
-                      style: const TextStyle(color: Color(0xFF3B82F6), fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                          color: Color(0xFF3B82F6),
+                          fontWeight: FontWeight.bold),
                     ),
                   ),
                   title: Text(
@@ -1186,18 +1295,24 @@ class BusinessDetailPage extends StatelessWidget {
                     children: [
                       Text(email, style: const TextStyle(fontSize: 11)),
                       if (phone.isNotEmpty)
-                        Text(phone, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                        Text(phone,
+                            style: const TextStyle(
+                                fontSize: 11, color: Colors.grey)),
                       Row(
                         children: [
                           Text(
                             'Joined: $joinDate',
-                            style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                            style: TextStyle(
+                                fontSize: 10, color: Colors.grey[600]),
                           ),
                           const SizedBox(width: 8),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
-                              color: role.toLowerCase() == 'admin' ? Colors.purple[100] : Colors.blue[100],
+                              color: role.toLowerCase() == 'admin'
+                                  ? Colors.purple[100]
+                                  : Colors.blue[100],
                               borderRadius: BorderRadius.circular(3),
                             ),
                             child: Text(
@@ -1205,7 +1320,9 @@ class BusinessDetailPage extends StatelessWidget {
                               style: TextStyle(
                                 fontSize: 9,
                                 fontWeight: FontWeight.bold,
-                                color: role.toLowerCase() == 'admin' ? Colors.purple[800] : Colors.blue[800],
+                                color: role.toLowerCase() == 'admin'
+                                    ? Colors.purple[800]
+                                    : Colors.blue[800],
                               ),
                             ),
                           ),
@@ -1220,29 +1337,52 @@ class BusinessDetailPage extends StatelessWidget {
                         onPressed: hasActive
                             ? null
                             : () async {
-                                final adminProv = Provider.of<AdminProvider>(context, listen: false);
+                                final adminProv = Provider.of<AdminProvider>(
+                                    context,
+                                    listen: false);
                                 final confirmed = await showDialog<bool>(
                                   context: context,
                                   builder: (dctx) => AlertDialog(
-                                    title: const Text('Grant Yearly Subscription'),
-                                    content: Text('Grant a yearly subscription to $name?'),
+                                    title:
+                                        const Text('Grant Yearly Subscription'),
+                                    content: Text(
+                                        'Grant a yearly subscription to $name?'),
                                     actions: [
-                                      TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('Cancel')),
-                                      ElevatedButton(onPressed: () => Navigator.pop(dctx, true), child: const Text('Confirm')),
+                                      TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(dctx, false),
+                                          child: const Text('Cancel')),
+                                      ElevatedButton(
+                                          onPressed: () =>
+                                              Navigator.pop(dctx, true),
+                                          child: const Text('Confirm')),
                                     ],
                                   ),
                                 );
                                 if (confirmed != true) return;
 
-                                showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
-                                final ok = await adminProv.activateYearlySubscriptionForWorker(w['id'] ?? w['uid'] ?? w['userId'], businessId);
+                                showDialog(
+                                    context: context,
+                                    barrierDismissible: false,
+                                    builder: (_) => const Center(
+                                        child: CircularProgressIndicator()));
+                                final ok = await adminProv
+                                    .activateYearlySubscriptionForWorker(
+                                        w['id'] ?? w['uid'] ?? w['userId'],
+                                        businessId);
                                 Navigator.pop(context);
-                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? '✓ Subscription granted to $name' : '✗ Failed to grant subscription')));
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                        content: Text(ok
+                                            ? '✓ Subscription granted to $name'
+                                            : '✗ Failed to grant subscription')));
                               },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: hasActive ? Colors.grey : const Color(0xFF10B981),
+                          backgroundColor:
+                              hasActive ? Colors.grey : const Color(0xFF10B981),
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 6),
                         ),
                         child: Text(
                           hasActive ? 'Active' : 'Grant',
@@ -1252,7 +1392,8 @@ class BusinessDetailPage extends StatelessWidget {
                       if (hasActive)
                         Text(
                           'Until: ${w['subscriptionEndDate'] != null ? _formatTimestamp(w['subscriptionEndDate']) : '∞'}',
-                          style: TextStyle(fontSize: 9, color: Colors.grey[600]),
+                          style:
+                              TextStyle(fontSize: 9, color: Colors.grey[600]),
                         ),
                     ],
                   ),
@@ -1266,14 +1407,23 @@ class BusinessDetailPage extends StatelessWidget {
     );
   }
 
-  void _showWorkerDetailsDialog(BuildContext context, Map<String, dynamic> worker, String businessId) {
-    final name = (worker['name'] ?? worker['displayName'] ?? worker['email'] ?? 'Worker').toString();
+  void _showWorkerDetailsDialog(
+      BuildContext context, Map<String, dynamic> worker, String businessId) {
+    final name =
+        (worker['name'] ?? worker['displayName'] ?? worker['email'] ?? 'Worker')
+            .toString();
     final email = (worker['email'] ?? '').toString();
     final phone = (worker['phone'] ?? '').toString();
     final role = (worker['role'] ?? worker['userType'] ?? 'worker').toString();
-    final joinDate = worker['createdAt'] != null ? _formatTimestamp(worker['createdAt']) : 'Unknown';
-    final subEndDate = worker['subscriptionEndDate'] != null ? _formatTimestamp(worker['subscriptionEndDate']) : 'N/A';
-    final lastActive = worker['lastActive'] != null ? _formatTimestamp(worker['lastActive']) : 'Never';
+    final joinDate = worker['createdAt'] != null
+        ? _formatTimestamp(worker['createdAt'])
+        : 'Unknown';
+    final subEndDate = worker['subscriptionEndDate'] != null
+        ? _formatTimestamp(worker['subscriptionEndDate'])
+        : 'N/A';
+    final lastActive = worker['lastActive'] != null
+        ? _formatTimestamp(worker['lastActive'])
+        : 'Never';
 
     showDialog(
       context: context,
@@ -1313,24 +1463,30 @@ class BusinessDetailPage extends StatelessWidget {
                     title: const Text('Remove Worker'),
                     content: Text('Remove $name from this business?'),
                     actions: [
-                      TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('Cancel')),
+                      TextButton(
+                          onPressed: () => Navigator.pop(dctx, false),
+                          child: const Text('Cancel')),
                       ElevatedButton(
                         onPressed: () => Navigator.pop(dctx, true),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red),
                         child: const Text('Remove'),
                       ),
                     ],
                   ),
                 );
                 if (confirmed != true) return;
-                final adminProv = Provider.of<AdminProvider>(context, listen: false);
+                final adminProv =
+                    Provider.of<AdminProvider>(context, listen: false);
                 showDialog(
                   context: context,
                   barrierDismissible: false,
-                  builder: (_) => const Center(child: CircularProgressIndicator()),
+                  builder: (_) =>
+                      const Center(child: CircularProgressIndicator()),
                 );
                 final ok = await adminProv.removeWorkerFromBusiness(
-                  (worker['id'] ?? worker['uid'] ?? worker['userId']).toString(),
+                  (worker['id'] ?? worker['uid'] ?? worker['userId'])
+                      .toString(),
                   businessId,
                 );
                 if (context.mounted) {
@@ -1338,7 +1494,9 @@ class BusinessDetailPage extends StatelessWidget {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
-                        ok ? '$name removed from business' : 'Failed to remove worker',
+                        ok
+                            ? '$name removed from business'
+                            : 'Failed to remove worker',
                       ),
                     ),
                   );
@@ -1384,8 +1542,12 @@ class BusinessDetailPage extends StatelessWidget {
                   child: Center(child: CircularProgressIndicator()),
                 );
               }
-              if (snap.hasError || snap.data == null || snap.data!.containsKey('error')) {
-                final err = snap.data?['error'] ?? snap.error?.toString() ?? 'Failed to load sales';
+              if (snap.hasError ||
+                  snap.data == null ||
+                  snap.data!.containsKey('error')) {
+                final err = snap.data?['error'] ??
+                    snap.error?.toString() ??
+                    'Failed to load sales';
                 return SizedBox(
                   height: 220,
                   child: Center(child: Text('Error: $err')),
@@ -1399,20 +1561,30 @@ class BusinessDetailPage extends StatelessWidget {
               final items = <String, Map<String, double>>{
                 for (final entry in rawItems.entries)
                   entry.key.toString(): {
-                    'quantity': ((entry.value as Map?)?['quantity'] as num?)?.toDouble() ?? 0.0,
-                    'sales': ((entry.value as Map?)?['sales'] as num?)?.toDouble() ?? 0.0,
+                    'quantity': ((entry.value as Map?)?['quantity'] as num?)
+                            ?.toDouble() ??
+                        0.0,
+                    'sales':
+                        ((entry.value as Map?)?['sales'] as num?)?.toDouble() ??
+                            0.0,
                   },
               };
               final cashierTotals = <String, double>{
-                for (final entry in ((data['cashierTotals'] as Map?) ?? {}).entries)
-                  entry.key.toString(): (entry.value as num?)?.toDouble() ?? 0.0,
+                for (final entry
+                    in ((data['cashierTotals'] as Map?) ?? {}).entries)
+                  entry.key.toString():
+                      (entry.value as num?)?.toDouble() ?? 0.0,
               };
               final paymentMethodTotals = <String, double>{
-                for (final entry in ((data['paymentMethodTotals'] as Map?) ?? {}).entries)
-                  entry.key.toString(): (entry.value as num?)?.toDouble() ?? 0.0,
+                for (final entry
+                    in ((data['paymentMethodTotals'] as Map?) ?? {}).entries)
+                  entry.key.toString():
+                      (entry.value as num?)?.toDouble() ?? 0.0,
               };
-              final transactions = List<Map<String, dynamic>>.from((data['transactions'] ?? []));
-              final previousDayTotal = (data['previousDayTotal'] ?? 0).toDouble();
+              final transactions =
+                  List<Map<String, dynamic>>.from((data['transactions'] ?? []));
+              final previousDayTotal =
+                  (data['previousDayTotal'] ?? 0).toDouble();
 
               // Build top items list
               final topItems = items.entries.map((e) {
@@ -1422,7 +1594,8 @@ class BusinessDetailPage extends StatelessWidget {
                   'sales': e.value['sales'] ?? 0.0
                 };
               }).toList();
-              topItems.sort((a, b) => (b['sales'] as double).compareTo(a['sales'] as double));
+              topItems.sort((a, b) =>
+                  (b['sales'] as double).compareTo(a['sales'] as double));
 
               String buildMessage() {
                 final buffer = StringBuffer();
@@ -1431,10 +1604,13 @@ class BusinessDetailPage extends StatelessWidget {
                 final yearStr = dateToFetch.year.toString();
                 buffer.writeln('Daily Sales Summary for $businessName');
                 buffer.writeln('Date: $dateStr/$monthStr/$yearStr');
-                buffer.writeln('Total Sales: ₦${totalSales.toStringAsFixed(2)}');
+                buffer
+                    .writeln('Total Sales: ₦${totalSales.toStringAsFixed(2)}');
                 final grossProfit = (data['grossProfit'] ?? 0).toDouble();
-                final grossMarginPct = (data['grossMarginPercent'] ?? 0).toDouble();
-                buffer.writeln('Gross Profit: ₦${grossProfit.toStringAsFixed(2)} (Margin: ${grossMarginPct.toStringAsFixed(1)}%)');
+                final grossMarginPct =
+                    (data['grossMarginPercent'] ?? 0).toDouble();
+                buffer.writeln(
+                    'Gross Profit: ₦${grossProfit.toStringAsFixed(2)} (Margin: ${grossMarginPct.toStringAsFixed(1)}%)');
                 buffer.writeln('Transactions: $txCount');
 
                 // Growth vs previous day
@@ -1444,13 +1620,17 @@ class BusinessDetailPage extends StatelessWidget {
                   final diff = totalSales - previousDayTotal;
                   final pct = (diff / previousDayTotal) * 100;
                   final sign = pct >= 0 ? '▲' : '▼';
-                  buffer.writeln('Growth: $sign ${pct.abs().toStringAsFixed(1)}% vs yesterday (₦${previousDayTotal.toStringAsFixed(2)})');
+                  buffer.writeln(
+                      'Growth: $sign ${pct.abs().toStringAsFixed(1)}% vs yesterday (₦${previousDayTotal.toStringAsFixed(2)})');
                 }
 
                 buffer.writeln('\nTop Items:');
-                for (var i = 0; i < (topItems.length < 5 ? topItems.length : 5); i++) {
+                for (var i = 0;
+                    i < (topItems.length < 5 ? topItems.length : 5);
+                    i++) {
                   final it = topItems[i];
-                  buffer.writeln('${i + 1}. ${it['name']} x ${it['quantity']} - ₦${(it['sales'] as double).toStringAsFixed(2)}');
+                  buffer.writeln(
+                      '${i + 1}. ${it['name']} x ${it['quantity']} - ₦${(it['sales'] as double).toStringAsFixed(2)}');
                 }
 
                 // Top cashiers
@@ -1458,9 +1638,12 @@ class BusinessDetailPage extends StatelessWidget {
                   buffer.writeln('\nTop Cashiers:');
                   final topCashiers = cashierTotals.entries.toList();
                   topCashiers.sort((a, b) => b.value.compareTo(a.value));
-                  for (var i = 0; i < (topCashiers.length < 5 ? topCashiers.length : 5); i++) {
+                  for (var i = 0;
+                      i < (topCashiers.length < 5 ? topCashiers.length : 5);
+                      i++) {
                     final c = topCashiers[i];
-                    buffer.writeln('${i + 1}. ${c.key} - ₦${c.value.toStringAsFixed(2)}');
+                    buffer.writeln(
+                        '${i + 1}. ${c.key} - ₦${c.value.toStringAsFixed(2)}');
                   }
                 }
 
@@ -1471,29 +1654,40 @@ class BusinessDetailPage extends StatelessWidget {
                   sortedMethods.sort((a, b) => b.value.compareTo(a.value));
                   for (var method in sortedMethods) {
                     final percentage = (method.value / totalSales * 100);
-                    buffer.writeln('- ${method.key}: ₦${method.value.toStringAsFixed(2)} (${percentage.toStringAsFixed(1)}%)');
+                    buffer.writeln(
+                        '- ${method.key}: ₦${method.value.toStringAsFixed(2)} (${percentage.toStringAsFixed(1)}%)');
                   }
                 }
 
                 // Recent transactions (up to 30, IDs omitted)
                 if (transactions.isNotEmpty) {
-                  buffer.writeln('\nRecent Transactions (up to 30, IDs omitted):');
+                  buffer.writeln(
+                      '\nRecent Transactions (up to 30, IDs omitted):');
                   final recent = transactions.take(30).toList();
                   for (var t in recent) {
-                    final cashier = t['cashier'] ?? t['cashierName'] ?? 'Unknown';
-                    final total = (t['total'] ?? t['totalAmount'] ?? 0).toDouble();
+                    final cashier =
+                        t['cashier'] ?? t['cashierName'] ?? 'Unknown';
+                    final total =
+                        (t['total'] ?? t['totalAmount'] ?? 0).toDouble();
                     final rawItems = t['items'] as List<dynamic>? ?? [];
                     final itemStr = rawItems.map((it) {
                       final name = it['productName'] ?? it['name'] ?? 'Item';
                       final qty = (it['quantity'] ?? it['qty'] ?? 0);
                       return '$name x$qty';
                     }).join(', ');
-                    final dateStr = (t['createdAt'] is String && (t['createdAt'] as String).isNotEmpty)
-                        ? DateTime.parse(t['createdAt']).toLocal().toString().split('.').first
+                    final dateStr = (t['createdAt'] is String &&
+                            (t['createdAt'] as String).isNotEmpty)
+                        ? DateTime.parse(t['createdAt'])
+                            .toLocal()
+                            .toString()
+                            .split('.')
+                            .first
                         : '';
-                    buffer.writeln('- ₦${total.toStringAsFixed(2)} • ${t['status'] ?? ''} • $dateStr • $cashier • $itemStr');
+                    buffer.writeln(
+                        '- ₦${total.toStringAsFixed(2)} • ${t['status'] ?? ''} • $dateStr • $cashier • $itemStr');
                   }
-                  buffer.writeln('\nNote: Transaction IDs are omitted from this message. A full report (including IDs) can be emailed to the owner.');
+                  buffer.writeln(
+                      '\nNote: Transaction IDs are omitted from this message. A full report (including IDs) can be emailed to the owner.');
                 }
 
                 buffer.writeln('\nRegards, Manage Care Admin');
@@ -1526,7 +1720,8 @@ class BusinessDetailPage extends StatelessWidget {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('Daily Sales', style: Theme.of(context).textTheme.headlineSmall),
+                        Text('Daily Sales',
+                            style: Theme.of(context).textTheme.headlineSmall),
                         IconButton(
                           icon: const Icon(Icons.close),
                           onPressed: () => Navigator.pop(context),
@@ -1542,7 +1737,12 @@ class BusinessDetailPage extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(12),
-                        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 2))],
+                        boxShadow: [
+                          BoxShadow(
+                              color: Colors.black12,
+                              blurRadius: 8,
+                              offset: Offset(0, 2))
+                        ],
                       ),
                       child: Row(
                         children: [
@@ -1550,11 +1750,19 @@ class BusinessDetailPage extends StatelessWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Total Sales', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                                Text('Total Sales',
+                                    style: TextStyle(
+                                        color: Colors.grey[600], fontSize: 12)),
                                 const SizedBox(height: 6),
-                                Text('₦${totalSales.toStringAsFixed(2)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                Text('₦${totalSales.toStringAsFixed(2)}',
+                                    style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold)),
                                 const SizedBox(height: 6),
-                                Text('Gross: ₦${(data['grossProfit'] ?? 0).toStringAsFixed(2)} (${(data['grossMarginPercent'] ?? 0).toStringAsFixed(1)}%)', style: TextStyle(color: Colors.grey[700], fontSize: 12)),
+                                Text(
+                                    'Gross: ₦${(data['grossProfit'] ?? 0).toStringAsFixed(2)} (${(data['grossMarginPercent'] ?? 0).toStringAsFixed(1)}%)',
+                                    style: TextStyle(
+                                        color: Colors.grey[700], fontSize: 12)),
                               ],
                             ),
                           ),
@@ -1562,9 +1770,14 @@ class BusinessDetailPage extends StatelessWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
-                                Text('Transactions', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                                Text('Transactions',
+                                    style: TextStyle(
+                                        color: Colors.grey[600], fontSize: 12)),
                                 const SizedBox(height: 6),
-                                Text('$txCount', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                Text('$txCount',
+                                    style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold)),
                               ],
                             ),
                           ),
@@ -1575,9 +1788,17 @@ class BusinessDetailPage extends StatelessWidget {
                     const SizedBox(height: 12),
 
                     // Growth and top cashiers
-                    Text(topCashiers.isNotEmpty ? 'Growth & Top Cashiers' : 'Growth', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    Text(
+                        topCashiers.isNotEmpty
+                            ? 'Growth & Top Cashiers'
+                            : 'Growth',
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
                     const SizedBox(height: 8),
-                    Text(previousDayTotal == 0 ? 'Growth: N/A (no sales yesterday)' : '${((totalSales - previousDayTotal)/ (previousDayTotal == 0 ? 1 : previousDayTotal) * 100).toStringAsFixed(1)}% vs yesterday', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    Text(
+                        previousDayTotal == 0
+                            ? 'Growth: N/A (no sales yesterday)'
+                            : '${((totalSales - previousDayTotal) / (previousDayTotal == 0 ? 1 : previousDayTotal) * 100).toStringAsFixed(1)}% vs yesterday',
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
                     const SizedBox(height: 8),
                     if (topCashiers.isNotEmpty)
                       SizedBox(
@@ -1587,23 +1808,28 @@ class BusinessDetailPage extends StatelessWidget {
                           itemBuilder: (_, i) {
                             final c = topCashiers[i];
                             return Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
                               decoration: BoxDecoration(
                                 color: Colors.grey[100],
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                              child: Text('${i + 1}. ${c.key} • ₦${c.value.toStringAsFixed(0)}', style: const TextStyle(fontSize: 12)),
+                              child: Text(
+                                  '${i + 1}. ${c.key} • ₦${c.value.toStringAsFixed(0)}',
+                                  style: const TextStyle(fontSize: 12)),
                             );
                           },
                           separatorBuilder: (_, __) => const SizedBox(width: 8),
-                          itemCount: topCashiers.length < 5 ? topCashiers.length : 5,
+                          itemCount:
+                              topCashiers.length < 5 ? topCashiers.length : 5,
                         ),
                       ),
 
                     const SizedBox(height: 12),
 
                     // Top items
-                    const Text('Top Items:', style: TextStyle(fontWeight: FontWeight.w600)),
+                    const Text('Top Items:',
+                        style: TextStyle(fontWeight: FontWeight.w600)),
                     const SizedBox(height: 8),
                     SizedBox(
                       height: 120,
@@ -1619,16 +1845,22 @@ class BusinessDetailPage extends StatelessWidget {
                             decoration: BoxDecoration(
                               color: Colors.grey[50],
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.grey[200]! ),
+                              border: Border.all(color: Colors.grey[200]!),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(it['name'] as String, style: const TextStyle(fontWeight: FontWeight.w600)),
+                                Text(it['name'] as String,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w600)),
                                 const Spacer(),
-                                Text('x${it['quantity']}', style: TextStyle(color: Colors.grey[600])),
+                                Text('x${it['quantity']}',
+                                    style: TextStyle(color: Colors.grey[600])),
                                 const SizedBox(height: 6),
-                                Text('₦${(it['sales'] as double).toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                Text(
+                                    '₦${(it['sales'] as double).toStringAsFixed(2)}',
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold)),
                               ],
                             ),
                           );
@@ -1643,30 +1875,42 @@ class BusinessDetailPage extends StatelessWidget {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Payment Methods', style: TextStyle(fontWeight: FontWeight.w600)),
+                          const Text('Payment Methods',
+                              style: TextStyle(fontWeight: FontWeight.w600)),
                           const SizedBox(height: 8),
                           ...(() {
                             final sorted = paymentMethodTotals.entries.toList();
                             sorted.sort((a, b) => b.value.compareTo(a.value));
                             return sorted.map((method) {
-                              final percentage = (method.value / totalSales * 100);
+                              final percentage =
+                                  (method.value / totalSales * 100);
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 8.0),
                                 child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
-                                          Text(method.key, style: const TextStyle(fontWeight: FontWeight.w500)),
-                                          Text('${percentage.toStringAsFixed(1)}%', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                                          Text(method.key,
+                                              style: const TextStyle(
+                                                  fontWeight: FontWeight.w500)),
+                                          Text(
+                                              '${percentage.toStringAsFixed(1)}%',
+                                              style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey[600])),
                                         ],
                                       ),
                                     ),
                                     Text(
                                       '₦${method.value.toStringAsFixed(2)}',
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14),
                                     ),
                                   ],
                                 ),
@@ -1682,10 +1926,14 @@ class BusinessDetailPage extends StatelessWidget {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text('Total', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                              const Text('Total',
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14)),
                               Text(
                                 '₦${totalSales.toStringAsFixed(2)}',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 14),
                               ),
                             ],
                           ),
@@ -1694,7 +1942,8 @@ class BusinessDetailPage extends StatelessWidget {
                       ),
 
                     // Recent transactions
-                    const Text('Recent Transactions', style: TextStyle(fontWeight: FontWeight.w600)),
+                    const Text('Recent Transactions',
+                        style: TextStyle(fontWeight: FontWeight.w600)),
                     const SizedBox(height: 8),
                     SizedBox(
                       height: 300,
@@ -1702,22 +1951,32 @@ class BusinessDetailPage extends StatelessWidget {
                         itemCount: transactions.length,
                         itemBuilder: (ctx, i) {
                           final t = transactions[i];
-                          final cashier = t['cashier'] ?? t['cashierName'] ?? 'Unknown';
-                          final total = (t['total'] ?? t['totalAmount'] ?? 0).toDouble();
+                          final cashier =
+                              t['cashier'] ?? t['cashierName'] ?? 'Unknown';
+                          final total =
+                              (t['total'] ?? t['totalAmount'] ?? 0).toDouble();
                           final rawItems = t['items'] as List<dynamic>? ?? [];
                           final itemStr = rawItems.map((it) {
-                            final name = it['productName'] ?? it['name'] ?? 'Item';
+                            final name =
+                                it['productName'] ?? it['name'] ?? 'Item';
                             final qty = (it['quantity'] ?? it['qty'] ?? 0);
                             return '$name x$qty';
                           }).join(', ');
-                          final dateStr = (t['createdAt'] is String && (t['createdAt'] as String).isNotEmpty)
-                              ? DateTime.parse(t['createdAt']).toLocal().toString().split('.').first
+                          final dateStr = (t['createdAt'] is String &&
+                                  (t['createdAt'] as String).isNotEmpty)
+                              ? DateTime.parse(t['createdAt'])
+                                  .toLocal()
+                                  .toString()
+                                  .split('.')
+                                  .first
                               : '';
 
                           return ListTile(
                             dense: true,
-                            title: Text('₦${total.toStringAsFixed(2)} • $cashier'),
-                            subtitle: Text('$dateStr • $itemStr', maxLines: 2, overflow: TextOverflow.ellipsis),
+                            title:
+                                Text('₦${total.toStringAsFixed(2)} • $cashier'),
+                            subtitle: Text('$dateStr • $itemStr',
+                                maxLines: 2, overflow: TextOverflow.ellipsis),
                           );
                         },
                       ),
@@ -1729,7 +1988,10 @@ class BusinessDetailPage extends StatelessWidget {
                     StatefulBuilder(builder: (context, setLocalState) {
                       final Map<String, bool> _pressed = {};
 
-                      Widget animatedButton({required Widget child, required VoidCallback onTap, required String key}) {
+                      Widget animatedButton(
+                          {required Widget child,
+                          required VoidCallback onTap,
+                          required String key}) {
                         final pressed = _pressed[key] == true;
                         return Padding(
                           padding: const EdgeInsets.only(right: 8.0),
@@ -1737,11 +1999,13 @@ class BusinessDetailPage extends StatelessWidget {
                             onTap: () async {
                               setLocalState(() => _pressed[key] = true);
                               try {
-                                await Future.delayed(const Duration(milliseconds: 100));
+                                await Future.delayed(
+                                    const Duration(milliseconds: 100));
                                 onTap();
                               } finally {
                                 // small delay for animation
-                                Future.delayed(const Duration(milliseconds: 180), () {
+                                Future.delayed(
+                                    const Duration(milliseconds: 180), () {
                                   setLocalState(() => _pressed[key] = false);
                                 });
                               }
@@ -1765,51 +2029,81 @@ class BusinessDetailPage extends StatelessWidget {
                                 final message = buildMessage();
                                 final messenger = ScaffoldMessenger.of(context);
                                 if (phone.isEmpty) {
-                                  messenger.showSnackBar(const SnackBar(content: Text('Owner phone number not available')));
+                                  messenger.showSnackBar(const SnackBar(
+                                      content: Text(
+                                          'Owner phone number not available')));
                                   return;
                                 }
 
                                 // Clean phone: remove all non-numeric characters
-                                var cleanPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
-                                
+                                var cleanPhone =
+                                    phone.replaceAll(RegExp(r'[^0-9]'), '');
+
                                 // If phone doesn't start with country code, add +234 (Nigeria)
-                                if (!cleanPhone.startsWith('+') && cleanPhone.length == 10 && cleanPhone.startsWith('0')) {
+                                if (!cleanPhone.startsWith('+') &&
+                                    cleanPhone.length == 10 &&
+                                    cleanPhone.startsWith('0')) {
                                   cleanPhone = '234${cleanPhone.substring(1)}';
-                                } else if (cleanPhone.length == 10 && cleanPhone.startsWith('0')) {
+                                } else if (cleanPhone.length == 10 &&
+                                    cleanPhone.startsWith('0')) {
                                   cleanPhone = '234${cleanPhone.substring(1)}';
                                 }
-                                
+
                                 // Ensure it starts with +
                                 if (!cleanPhone.startsWith('+')) {
                                   cleanPhone = '+$cleanPhone';
                                 }
 
-                                final uri = Uri.parse('https://api.whatsapp.com/send?phone=${cleanPhone.replaceAll('+', '')}&text=${Uri.encodeComponent(message)}');
+                                final uri = Uri.parse(
+                                    'https://api.whatsapp.com/send?phone=${cleanPhone.replaceAll('+', '')}&text=${Uri.encodeComponent(message)}');
                                 try {
-                                  final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                  final launched = await launchUrl(uri,
+                                      mode: LaunchMode.externalApplication);
                                   if (!launched) throw 'Could not launch';
-                                  messenger.showSnackBar(const SnackBar(content: Text('Opening WhatsApp...')));
+                                  messenger.showSnackBar(const SnackBar(
+                                      content: Text('Opening WhatsApp...')));
                                 } catch (e) {
-                                  await Clipboard.setData(ClipboardData(text: message));
-                                  messenger.showSnackBar(const SnackBar(content: Text('Message copied to clipboard. Paste in WhatsApp.')));
+                                  await Clipboard.setData(
+                                      ClipboardData(text: message));
+                                  messenger.showSnackBar(const SnackBar(
+                                      content: Text(
+                                          'Message copied to clipboard. Paste in WhatsApp.')));
                                 }
                               },
                               child: ElevatedButton.icon(
                                 onPressed: null,
-                                icon: const CircleAvatar(radius: 12, backgroundColor: Color(0xFF25D366), child: Icon(Icons.message, size: 16, color: Colors.white)),
+                                icon: const CircleAvatar(
+                                    radius: 12,
+                                    backgroundColor: Color(0xFF25D366),
+                                    child: Icon(Icons.message,
+                                        size: 16, color: Colors.white)),
                                 label: const Text('WhatsApp'),
-                                style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 1),
+                                style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.white,
+                                    foregroundColor: Colors.black,
+                                    elevation: 1),
                               ),
                             ),
-
                             animatedButton(
                               key: 'email',
                               onTap: () async {
                                 final messenger = ScaffoldMessenger.of(context);
                                 final svc = WhatsAppService();
-                                messenger.showSnackBar(const SnackBar(content: Text('Sending daily report to owner...')));
-                                final webhookUrl = (business['dailyReportWebhook'] as String?) ?? (business['settings'] is Map ? (business['settings'] as Map)['dailyReportWebhook'] as String? : null);
-                                final ok = await svc.sendRecentTransactions(businessId: businessId, to: phone, limit: 30, webhookUrl: webhookUrl);
+                                messenger.showSnackBar(const SnackBar(
+                                    content: Text(
+                                        'Sending daily report to owner...')));
+                                final webhookUrl =
+                                    (business['dailyReportWebhook']
+                                            as String?) ??
+                                        (business['settings'] is Map
+                                            ? (business['settings'] as Map)[
+                                                'dailyReportWebhook'] as String?
+                                            : null);
+                                final ok = await svc.sendRecentTransactions(
+                                    businessId: businessId,
+                                    to: phone,
+                                    limit: 30,
+                                    webhookUrl: webhookUrl);
 
                                 try {
                                   final reportSvc = ReportService();
@@ -1819,33 +2113,53 @@ class BusinessDetailPage extends StatelessWidget {
                                     'date': DateTime.now().toIso8601String(),
                                     'transactions': []
                                   };
-                                  final fallbackOk = await reportSvc.triggerForBusiness(businessId: businessId, webhookUrl: webhookUrl, payload: payload);
-                                  messenger.showSnackBar(SnackBar(content: Text((ok || fallbackOk) ? 'Daily report sent.' : 'Failed to send daily report')));
+                                  final fallbackOk =
+                                      await reportSvc.triggerForBusiness(
+                                          businessId: businessId,
+                                          webhookUrl: webhookUrl,
+                                          payload: payload);
+                                  messenger.showSnackBar(SnackBar(
+                                      content: Text((ok || fallbackOk)
+                                          ? 'Daily report sent.'
+                                          : 'Failed to send daily report')));
                                 } catch (e) {
-                                  messenger.showSnackBar(SnackBar(content: Text(ok ? 'Daily report sent.' : 'Failed to send daily report')));
+                                  messenger.showSnackBar(SnackBar(
+                                      content: Text(ok
+                                          ? 'Daily report sent.'
+                                          : 'Failed to send daily report')));
                                 }
                               },
                               child: ElevatedButton.icon(
                                 onPressed: null,
-                                icon: const CircleAvatar(radius: 12, backgroundColor: Color(0xFF3B82F6), child: Icon(Icons.send, size: 14, color: Colors.white)),
+                                icon: const CircleAvatar(
+                                    radius: 12,
+                                    backgroundColor: Color(0xFF3B82F6),
+                                    child: Icon(Icons.send,
+                                        size: 14, color: Colors.white)),
                                 label: const Text('Email'),
-                                style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 1),
+                                style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.white,
+                                    foregroundColor: Colors.black,
+                                    elevation: 1),
                               ),
                             ),
-
                             animatedButton(
                               key: 'bookings',
                               onTap: () async {
                                 final messenger = ScaffoldMessenger.of(context);
-                                messenger.showSnackBar(const SnackBar(content: Text('Sending pending booking messages...')));
+                                messenger.showSnackBar(const SnackBar(
+                                    content: Text(
+                                        'Sending pending booking messages...')));
                                 try {
                                   final now = DateTime.now();
                                   final snap = await FirebaseFirestore.instance
                                       .collection('businesses')
                                       .doc(businessId)
                                       .collection('appointments')
-                                      .where('status', whereIn: ['pending', 'confirmed'])
-                                      .where('appointmentTime', isGreaterThan: now)
+                                      .where('status',
+                                          whereIn: ['pending', 'confirmed'])
+                                      .where('appointmentTime',
+                                          isGreaterThan: now)
                                       .get();
 
                                   int sent = 0;
@@ -1853,89 +2167,156 @@ class BusinessDetailPage extends StatelessWidget {
                                   final svc = WhatsAppService();
                                   for (final d in snap.docs) {
                                     final data = d.data();
-                                    final phoneRaw = (data['clientPhone'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
+                                    final phoneRaw = (data['clientPhone'] ?? '')
+                                        .toString()
+                                        .replaceAll(RegExp(r'[^0-9]'), '');
                                     if (phoneRaw.isEmpty) continue;
-                                    final when = (data['appointmentTime'] is Timestamp) ? (data['appointmentTime'] as Timestamp).toDate().toLocal().toString().split('.').first : data['appointmentTime'].toString();
-                                    final message = 'Hello ${data['clientName'] ?? ''}, reminder: your appointment for ${data['serviceName'] ?? ''} is on $when at ${business['name'] ?? ''}. Reply to confirm or contact us to reschedule.';
+                                    final when = (data['appointmentTime']
+                                            is Timestamp)
+                                        ? (data['appointmentTime'] as Timestamp)
+                                            .toDate()
+                                            .toLocal()
+                                            .toString()
+                                            .split('.')
+                                            .first
+                                        : data['appointmentTime'].toString();
+                                    final message =
+                                        'Hello ${data['clientName'] ?? ''}, reminder: your appointment for ${data['serviceName'] ?? ''} is on $when at ${business['name'] ?? ''}. Reply to confirm or contact us to reschedule.';
                                     try {
-                                      final ok = await svc.sendTextToNumbers(businessId: businessId, toNumbers: [phoneRaw], message: message);
-                                      if (ok) sent++; else failed++;
-                                      await Future.delayed(const Duration(milliseconds: 300));
+                                      final ok = await svc.sendTextToNumbers(
+                                          businessId: businessId,
+                                          toNumbers: [phoneRaw],
+                                          message: message);
+                                      if (ok)
+                                        sent++;
+                                      else
+                                        failed++;
+                                      await Future.delayed(
+                                          const Duration(milliseconds: 300));
                                     } catch (_) {
                                       failed++;
                                     }
                                   }
-                                  messenger.showSnackBar(SnackBar(content: Text('Pending booking messages sent: $sent, failed: $failed')));
+                                  messenger.showSnackBar(SnackBar(
+                                      content: Text(
+                                          'Pending booking messages sent: $sent, failed: $failed')));
                                 } catch (e) {
-                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to send pending booking messages: $e')));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                          content: Text(
+                                              'Failed to send pending booking messages: $e')));
                                 }
                               },
                               child: ElevatedButton.icon(
                                 onPressed: null,
-                                icon: const CircleAvatar(radius: 12, backgroundColor: Color(0xFF25D366), child: Icon(Icons.calendar_today, size: 14, color: Colors.white)),
+                                icon: const CircleAvatar(
+                                    radius: 12,
+                                    backgroundColor: Color(0xFF25D366),
+                                    child: Icon(Icons.calendar_today,
+                                        size: 14, color: Colors.white)),
                                 label: const Text('Send Bookings'),
-                                style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 1),
+                                style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.white,
+                                    foregroundColor: Colors.black,
+                                    elevation: 1),
                               ),
                             ),
-
                             animatedButton(
                               key: 'report',
                               onTap: () async {
                                 final messenger = ScaffoldMessenger.of(context);
-                                messenger.showSnackBar(const SnackBar(content: Text('Sending daily completed bookings report...')));
+                                messenger.showSnackBar(const SnackBar(
+                                    content: Text(
+                                        'Sending daily completed bookings report...')));
                                 try {
                                   final today = DateTime.now();
-                                  final start = DateTime(today.year, today.month, today.day);
-                                  final end = start.add(const Duration(days: 1));
+                                  final start = DateTime(
+                                      today.year, today.month, today.day);
+                                  final end =
+                                      start.add(const Duration(days: 1));
                                   final snap = await FirebaseFirestore.instance
                                       .collection('businesses')
                                       .doc(businessId)
                                       .collection('appointments')
                                       .where('status', isEqualTo: 'completed')
-                                      .where('appointmentTime', isGreaterThanOrEqualTo: start)
+                                      .where('appointmentTime',
+                                          isGreaterThanOrEqualTo: start)
                                       .where('appointmentTime', isLessThan: end)
                                       .get();
 
                                   final lines = <String>[];
                                   for (var i = 0; i < snap.docs.length; i++) {
                                     final d = snap.docs[i].data();
-                                    final when = (d['appointmentTime'] is Timestamp) ? (d['appointmentTime'] as Timestamp).toDate().toLocal().toString().split('.').first : d['appointmentTime'].toString();
-                                    lines.add('${i + 1}. ${d['clientName'] ?? ''} • ${d['serviceName'] ?? ''} • ${d['stylistName'] ?? d['barberName'] ?? ''} • $when • ₦${(d['amountPaid'] ?? 0)}');
+                                    final when = (d['appointmentTime']
+                                            is Timestamp)
+                                        ? (d['appointmentTime'] as Timestamp)
+                                            .toDate()
+                                            .toLocal()
+                                            .toString()
+                                            .split('.')
+                                            .first
+                                        : d['appointmentTime'].toString();
+                                    lines.add(
+                                        '${i + 1}. ${d['clientName'] ?? ''} • ${d['serviceName'] ?? ''} • ${d['stylistName'] ?? d['barberName'] ?? ''} • $when • ₦${(d['amountPaid'] ?? 0)}');
                                   }
 
-                                  final header = 'Completed bookings for ${start.toLocal().toIso8601String().split('T').first}: ${snap.docs.length}';
+                                  final header =
+                                      'Completed bookings for ${start.toLocal().toIso8601String().split('T').first}: ${snap.docs.length}';
                                   final report = [header, ...lines].join('\n');
                                   final svc = WhatsAppService();
-                                  final ok = await svc.sendTextToOwners(businessId: businessId, message: report);
-                                  messenger.showSnackBar(SnackBar(content: Text(ok ? 'Report sent to owner(s)' : 'Failed to send report')));
+                                  final ok = await svc.sendTextToOwners(
+                                      businessId: businessId, message: report);
+                                  messenger.showSnackBar(SnackBar(
+                                      content: Text(ok
+                                          ? 'Report sent to owner(s)'
+                                          : 'Failed to send report')));
                                 } catch (e) {
-                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to send report: $e')));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                          content: Text(
+                                              'Failed to send report: $e')));
                                 }
                               },
                               child: ElevatedButton.icon(
                                 onPressed: null,
-                                icon: const CircleAvatar(radius: 12, backgroundColor: Colors.orange, child: Icon(Icons.receipt_long, size: 14, color: Colors.white)),
+                                icon: const CircleAvatar(
+                                    radius: 12,
+                                    backgroundColor: Colors.orange,
+                                    child: Icon(Icons.receipt_long,
+                                        size: 14, color: Colors.white)),
                                 label: const Text('Send Report'),
-                                style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 1),
+                                style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.white,
+                                    foregroundColor: Colors.black,
+                                    elevation: 1),
                               ),
                             ),
-
                             animatedButton(
                               key: 'previous_day',
                               onTap: () async {
                                 Navigator.pop(outerContext);
-                                await Future.delayed(const Duration(milliseconds: 300));
-                                final yesterday = DateTime(dateToFetch.year, dateToFetch.month, dateToFetch.day).subtract(const Duration(days: 1));
-                                _showDailySales(outerContext, selectedDate: yesterday);
+                                await Future.delayed(
+                                    const Duration(milliseconds: 300));
+                                final yesterday = DateTime(dateToFetch.year,
+                                        dateToFetch.month, dateToFetch.day)
+                                    .subtract(const Duration(days: 1));
+                                _showDailySales(outerContext,
+                                    selectedDate: yesterday);
                               },
                               child: ElevatedButton.icon(
                                 onPressed: null,
-                                icon: const CircleAvatar(radius: 12, backgroundColor: Colors.purple, child: Icon(Icons.history, size: 14, color: Colors.white)),
+                                icon: const CircleAvatar(
+                                    radius: 12,
+                                    backgroundColor: Colors.purple,
+                                    child: Icon(Icons.history,
+                                        size: 14, color: Colors.white)),
                                 label: const Text('Previous Day'),
-                                style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 1),
+                                style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.white,
+                                    foregroundColor: Colors.black,
+                                    elevation: 1),
                               ),
                             ),
-
                             animatedButton(
                               key: 'select_date',
                               onTap: () async {
@@ -1947,32 +2328,42 @@ class BusinessDetailPage extends StatelessWidget {
                                 );
                                 if (picked != null && picked != dateToFetch) {
                                   Navigator.pop(outerContext);
-                                  await Future.delayed(const Duration(milliseconds: 300));
-                                  _showDailySales(outerContext, selectedDate: picked);
+                                  await Future.delayed(
+                                      const Duration(milliseconds: 300));
+                                  _showDailySales(outerContext,
+                                      selectedDate: picked);
                                 }
                               },
                               child: ElevatedButton.icon(
                                 onPressed: null,
-                                icon: const CircleAvatar(radius: 12, backgroundColor: Colors.teal, child: Icon(Icons.calendar_today, size: 14, color: Colors.white)),
+                                icon: const CircleAvatar(
+                                    radius: 12,
+                                    backgroundColor: Colors.teal,
+                                    child: Icon(Icons.calendar_today,
+                                        size: 14, color: Colors.white)),
                                 label: const Text('Select Date'),
-                                style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 1),
+                                style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.white,
+                                    foregroundColor: Colors.black,
+                                    elevation: 1),
                               ),
                             ),
-
                             animatedButton(
                               key: 'copy',
                               onTap: () async {
                                 final message = buildMessage();
                                 final messenger = ScaffoldMessenger.of(context);
-                                await Clipboard.setData(ClipboardData(text: message));
-                                messenger.showSnackBar(const SnackBar(content: Text('Message copied to clipboard')));
+                                await Clipboard.setData(
+                                    ClipboardData(text: message));
+                                messenger.showSnackBar(const SnackBar(
+                                    content:
+                                        Text('Message copied to clipboard')));
                               },
                               child: OutlinedButton(
                                 onPressed: null,
                                 child: const Text('Copy'),
                               ),
                             ),
-
                           ],
                         ),
                       );
@@ -1996,8 +2387,8 @@ Future<void> _deleteBusinessCompletely(
   final businessName = (business['name'] ?? 'this business').toString();
 
   final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
           title: const Text('Delete Business'),
           content: Text(
             'This will remove $businessName from normal access immediately and keep it recoverable by admin for 30 days before final cleanup.',
@@ -2087,14 +2478,17 @@ Future<void> _restoreDeletedBusiness(
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          ok ? '$businessName restored successfully' : 'Failed to restore business',
+          ok
+              ? '$businessName restored successfully'
+              : 'Failed to restore business',
         ),
       ),
     );
   }
 }
 
-Widget _buildSection(BuildContext context, String title, List<Widget> children) {
+Widget _buildSection(
+    BuildContext context, String title, List<Widget> children) {
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -2198,7 +2592,8 @@ void _editBusiness(BuildContext context, Map<String, dynamic> business) {
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setStateDialog) {
-        String selectedClass = (business['businessClass'] ?? 'tier1').toString();
+        String selectedClass =
+            (business['businessClass'] ?? 'tier1').toString();
         return AlertDialog(
           title: const Text('Edit Business'),
           content: SingleChildScrollView(
@@ -2227,13 +2622,18 @@ void _editBusiness(BuildContext context, Map<String, dynamic> business) {
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   value: selectedClass,
-                  decoration: const InputDecoration(labelText: 'Business Class'),
+                  decoration:
+                      const InputDecoration(labelText: 'Business Class'),
                   items: const [
-                    DropdownMenuItem(value: 'tier1', child: Text('Tier1 (Basic only)')),
-                    DropdownMenuItem(value: 'tier2', child: Text('Tier2 (Basic & Pro)')),
-                    DropdownMenuItem(value: 'tier3', child: Text('Tier3 (Basic & Pro)')),
+                    DropdownMenuItem(
+                        value: 'tier1', child: Text('Tier1 (Basic only)')),
+                    DropdownMenuItem(
+                        value: 'tier2', child: Text('Tier2 (Basic & Pro)')),
+                    DropdownMenuItem(
+                        value: 'tier3', child: Text('Tier3 (Basic & Pro)')),
                   ],
-                  onChanged: (v) => setStateDialog(() => selectedClass = v ?? 'tier1'),
+                  onChanged: (v) =>
+                      setStateDialog(() => selectedClass = v ?? 'tier1'),
                 ),
               ],
             ),
@@ -2358,4 +2758,3 @@ void _toggleStatus(BuildContext context, dynamic business) {
     ),
   );
 }
-

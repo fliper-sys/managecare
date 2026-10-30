@@ -7,6 +7,7 @@ import '../../../data/repositories/inventory_repository_supabase.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/workers_provider.dart';
+import 'bakery_inventory_workflow_screen.dart';
 
 class BakeryResupplyScreen extends StatefulWidget {
   const BakeryResupplyScreen({
@@ -246,27 +247,36 @@ class _BakeryResupplyScreenState extends State<BakeryResupplyScreen> {
     setState(() => _isLoading = true);
 
     try {
+      final items = <Map<String, dynamic>>[];
       for (final entry in _cartItems.values) {
         final item = Map<String, dynamic>.from(entry['item'] as Map<String, dynamic>);
         final quantity = entry['quantity'] as double;
-        await repository.recordBakeryResupply(
-          businessId: businessId,
-          inventoryId: (item['id'] ?? '').toString(),
-          quantity: quantity,
-          bakerId: _selectedBakerId,
-          bakerName: _selectedBakerName,
-          notes: _notesController.text.trim(),
-          performedById: performedById,
-          performedByName: performedByName,
-          expectedProductionAmount: expectedProductionAmount,
-          actualProductionAmount: actualProductionAmount,
-          productionUnit: 'pcs',
-          productionItemName: item['name']?.toString() ?? '',
-        );
+        items.add({
+          'inventoryId': item['id'],
+          'quantity': quantity,
+        });
       }
+      await repository.createBakeryResupplyRequests(
+        businessId: businessId,
+        items: items,
+        bakerId: _selectedBakerId,
+        bakerName: _selectedBakerName,
+        notes: _notesController.text.trim(),
+        performedById: performedById,
+        performedByName: performedByName,
+        expectedProductionAmount: expectedProductionAmount,
+        actualProductionAmount: actualProductionAmount,
+        productionUnit: 'pcs',
+      );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bakery resupply recorded successfully')));
-      Navigator.pop(context, true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Resupply sent for manager approval')),
+      );
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => const BakeryInventoryWorkflowScreen(),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
@@ -287,6 +297,17 @@ class _BakeryResupplyScreenState extends State<BakeryResupplyScreen> {
         title: const Text('Bakery Resupply'),
         backgroundColor: AppColors.primary,
         elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: 'Pending requests and history',
+            icon: const Icon(Icons.history),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const BakeryInventoryWorkflowScreen(),
+              ),
+            ),
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

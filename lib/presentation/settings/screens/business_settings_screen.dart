@@ -259,12 +259,25 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
           _pendingPhotoFilename = null;
         });
 
-        // Persist to backend without waiting
-        context.read<BusinessProvider>().updateBusiness(
-          context.read<BusinessProvider>().currentBusiness!.copyWith(photoUrl: cachebustedUrl)
+        final businessProvider = context.read<BusinessProvider>();
+        final business = businessProvider.currentBusiness;
+        if (business == null) return;
+        final saved = await businessProvider.updateBusiness(
+          business.copyWith(photoUrl: cachebustedUrl),
         );
-
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Business photo updated!')));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                saved
+                    ? 'Business photo updated!'
+                    : businessProvider.errorMessage ??
+                        'Failed to save business photo.',
+              ),
+              backgroundColor: saved ? AppColors.success : AppColors.error,
+            ),
+          );
+        }
       } else {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Upload failed'), action: SnackBarAction(label: 'Retry', onPressed: _retryUploadPhoto)));
       }
@@ -299,7 +312,11 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(success ? 'Settings saved successfully!' : 'Failed to save settings.'),
+          content: Text(
+            success
+                ? 'Settings saved successfully!'
+                : businessProvider.errorMessage ?? 'Failed to save settings.',
+          ),
           backgroundColor: success ? AppColors.success : AppColors.error,
         ),
       );
@@ -713,4 +730,3 @@ class _InfoCard extends StatelessWidget {
     );
   }
 }
-

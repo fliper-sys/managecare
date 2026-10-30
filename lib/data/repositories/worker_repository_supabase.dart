@@ -156,6 +156,20 @@ class WorkerRepositorySupabase implements WorkerRepository {
     }
   }
 
+  Future<dynamic> getWorkerByIdForBusiness(
+      String businessId, String workerId) async {
+    try {
+      final response = await _http.get(
+        '/workers/$businessId/$workerId',
+        options: await _authOptions(),
+      );
+      return _normalizeWorker(Map<String, dynamic>.from(response.data as Map));
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return null;
+      throw Exception('Failed to load worker: ${_extractError(e)}');
+    }
+  }
+
   @override
   Future<void> recordAttendance(
       String workerId, Map<String, dynamic> attendanceData) async {

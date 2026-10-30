@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/utils/datetime_utils.dart';
 import 'dart:async';
 
 /// Settings Provider - Manages all app settings including profile, notifications, printing, subscriptions, and exports
 class SettingsProvider extends ChangeNotifier {
   FirebaseFirestore? _firestore;
+  final SupabaseClient? _supabaseClient;
 
-  SettingsProvider({FirebaseFirestore? firestore}) {
+  SettingsProvider({
+    FirebaseFirestore? firestore,
+    SupabaseClient? supabase,
+  }) : _supabaseClient = supabase {
     _firestore = firestore;
   }
 
@@ -270,30 +275,40 @@ class SettingsProvider extends ChangeNotifier {
     String? profilePhotoUrl,
   }) async {
     try {
+      if (businessId.isEmpty || userId.isEmpty) {
+        throw ArgumentError('Business and user IDs are required.');
+      }
+
+      final supabase = _supabaseClient ?? Supabase.instance.client;
+      if (supabase.auth.currentUser?.id != userId) {
+        throw StateError('The signed-in user does not match the profile.');
+      }
+
+      final updatedProfile = await supabase
+          .from('profiles')
+          .update({
+            'full_name': fullName,
+            'email': email,
+            'phone_number': phoneNumber,
+            'address': address ?? _address,
+            'job_title': jobTitle ?? _jobTitle,
+            'photo_url': profilePhotoUrl ?? _profilePhotoUrl,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', userId)
+          .select('id')
+          .maybeSingle();
+
+      if (updatedProfile == null) {
+        throw StateError('The profile was not updated. Check profile access.');
+      }
+
       _fullName = fullName;
       _email = email;
       _phoneNumber = phoneNumber;
       if (address != null) _address = address;
       if (jobTitle != null) _jobTitle = jobTitle;
-      if (profilePhotoUrl != null) {
-        _profilePhotoUrl = profilePhotoUrl;
-      }
-
-      await _firestore
-          ?.collection('businesses')
-          .doc(businessId)
-          .collection('settings')
-          .doc(userId)
-          .set({
-        'fullName': fullName,
-        'email': email,
-        'phoneNumber': phoneNumber,
-        'address': _address,
-        'jobTitle': _jobTitle,
-        'profilePhotoUrl': _profilePhotoUrl,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
+      if (profilePhotoUrl != null) _profilePhotoUrl = profilePhotoUrl;
       _error = null;
       notifyListeners();
       return true;
@@ -605,4 +620,3 @@ class SettingsProvider extends ChangeNotifier {
     super.dispose();
   }
 }
-

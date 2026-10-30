@@ -16,6 +16,8 @@ import '../services/email_service.dart';
 import '../services/subscription_service_supabase.dart';
 import '../services/local_user_storage.dart';
 import '../services/local_business_storage.dart';
+import '../services/local_auth_cache.dart';
+import '../services/device_logger_service.dart';
 
 enum AuthStatus {
   initial,
@@ -48,6 +50,8 @@ class AuthProvider with ChangeNotifier {
   final SupabaseClient _supabase;
   LocalUserStorage? _localStorage;
   LocalBusinessStorage? _localBusinessStorage;
+  final LocalAuthCache _localAuthCache = LocalAuthCache();
+  UserModel? _sqliteCachedUser;
 
   /// Poll timer for the profile row.
   ///
@@ -65,6 +69,7 @@ class AuthProvider with ChangeNotifier {
   bool _subscriptionValidated = false;
   bool _passwordRecoveryPending = false;
   bool _isInitializingLocalStorage = true;
+  bool _isUsingCachedSessionWithoutSupabaseSession = false;
   final Completer<void> _initializationCompleter = Completer<void>();
   final Completer<void> _authRestoreCompleter = Completer<void>();
 
@@ -88,6 +93,9 @@ class AuthProvider with ChangeNotifier {
   UserModel? get currentUser => _currentUser;
   String? get errorMessage => _errorMessage;
   bool get isAuthenticated => _status == AuthStatus.authenticated;
+  bool get isUsingCachedSessionWithoutSupabaseSession =>
+      _isUsingCachedSessionWithoutSupabaseSession &&
+      _supabase.auth.currentSession == null;
   bool get subscriptionValidated => _subscriptionValidated;
   bool get passwordRecoveryPending => _passwordRecoveryPending;
 
@@ -106,11 +114,83 @@ class AuthProvider with ChangeNotifier {
   bool get isOwnerUser => _currentUser?.isOwner == true;
 
   bool get isPersistentLoginEnabled =>
-      _localStorage?.isAutoLoginEnabled() ?? false;
+      (_localStorage?.isAutoLoginEnabled() ?? false) ||
+      _sqliteCachedUser != null;
 
-  bool get hasCachedUser => _localStorage?.getCachedUser() != null;
+  bool get hasCachedUser => _getCachedUser() != null;
 
-  String? getLastLoggedInEmail() => _localStorage?.getLastLoggedInEmail();
+  UserModel? _getCachedUser() =>
+      _localStorage?.getCachedUser() ?? _sqliteCachedUser;
+
+  Future<bool> _saveUserToLocalCaches(UserModel user) async {
+    var preferencesSaved = false;
+    final localStorage = _localStorage;
+    if (localStorage != null) {
+      try {
+        preferencesSaved = await localStorage.saveUser(user);
+      } catch (e) {
+        DeviceLoggerService.capture(
+          'SharedPreferences user cache save failed (${e.runtimeType})',
+          severity: 'ERROR',
+        );
+      }
+    }
+
+    var sqliteSaved = false;
+    try {
+      await _localAuthCache.saveUser(user);
+      _sqliteCachedUser = user;
+      sqliteSaved = true;
+    } catch (e) {
+      DeviceLoggerService.capture(
+        'SQLite user cache save failed (${e.runtimeType})',
+        severity: 'ERROR',
+      );
+    }
+
+    DeviceLoggerService.capture(
+      'Local user cache write: preferences=$preferencesSaved, SQLite=$sqliteSaved',
+      severity: preferencesSaved || sqliteSaved ? 'INFO' : 'ERROR',
+    );
+    return preferencesSaved || sqliteSaved;
+  }
+
+  Future<bool> _clearUserFromLocalCaches() async {
+    var cleared = true;
+    final localStorage = _localStorage;
+    if (localStorage != null) {
+      try {
+        if (!await localStorage.clearUser()) {
+          cleared = false;
+          DeviceLoggerService.capture(
+            'SharedPreferences user cache clear returned false',
+            severity: 'ERROR',
+          );
+        }
+      } catch (e) {
+        cleared = false;
+        DeviceLoggerService.capture(
+          'SharedPreferences user cache clear failed (${e.runtimeType})',
+          severity: 'ERROR',
+        );
+      }
+    }
+
+    _sqliteCachedUser = null;
+    try {
+      await _localAuthCache.clearUser();
+    } catch (e) {
+      cleared = false;
+      DeviceLoggerService.capture(
+        'SQLite user cache clear failed (${e.runtimeType})',
+        severity: 'ERROR',
+      );
+    }
+    return cleared;
+  }
+
+  String? getLastLoggedInEmail() =>
+      _localStorage?.getLastLoggedInEmail() ?? _sqliteCachedUser?.email;
 
   // ────────────────────────────── Lifecycle ──────────────────────────────
 
@@ -128,11 +208,48 @@ class AuthProvider with ChangeNotifier {
     // Listen to GoTrue auth state changes (replaces Firebase authStateChanges).
     _supabase.auth.onAuthStateChange.listen((event) {
       unawaited(_handleAuthStateChange(event));
+    }, onError: (Object error, StackTrace stackTrace) {
+      unawaited(_handleAuthStreamError(error));
     });
+  }
+
+  Future<void> _handleAuthStreamError(Object error) async {
+    DeviceLoggerService.capture(
+      'Auth state stream reported ${error.runtimeType}; '
+      'retaining the current local session when available',
+      severity: 'WARNING',
+    );
+    if (_isInitializingLocalStorage) return;
+
+    if (_currentUser != null) {
+      _isUsingCachedSessionWithoutSupabaseSession =
+          _supabase.auth.currentSession == null;
+      if (_isUsingCachedSessionWithoutSupabaseSession) {
+        _subscriptionValidated = true;
+      }
+      _status = AuthStatus.authenticated;
+      _errorMessage = null;
+      notifyListeners();
+      return;
+    }
+
+    final cached = _getCachedUser();
+    if (isPersistentLoginEnabled && cached != null) {
+      await _restoreCachedUserForOfflineStartup(
+        cached,
+        recoveryNotice: 'Your saved workspace is available on this device. '
+            'Reconnect and sign in again to sync.',
+      );
+    }
   }
 
   Future<void> _handleAuthStateChange(AuthState event) async {
     try {
+      DeviceLoggerService.capture(
+        'Auth state event: ${event.event.name}, '
+        'session=${event.session != null}, '
+        'sign-out reason=${event.signOutReason?.name ?? 'none'}',
+      );
       if (event.event == AuthChangeEvent.passwordRecovery) {
         _passwordRecoveryPending = true;
         notifyListeners();
@@ -148,11 +265,47 @@ class AuthProvider with ChangeNotifier {
 
       if (_isInitializingLocalStorage) return;
 
-      final cachedUser = _localStorage?.getCachedUser();
+      final cachedUser = _getCachedUser();
       final hasPersistedSession =
           isPersistentLoginEnabled && cachedUser != null;
 
+      if (event.event == AuthChangeEvent.signedOut) {
+        final refreshSessionExpired =
+            event.signOutReason == SignOutReason.sessionExpired ||
+                event.signOutReason == SignOutReason.sessionMissing;
+        if (refreshSessionExpired) {
+          final userToKeep = _currentUser ??
+              (hasPersistedSession ? cachedUser : null);
+          if (userToKeep != null) {
+            await _restoreCachedUserForOfflineStartup(
+              userToKeep,
+              recoveryNotice: 'Your saved workspace is available on this '
+                  'device. Reconnect and sign in again to sync.',
+            );
+            return;
+          }
+        } else {
+          // Explicit logout clears these caches before calling Supabase. Clear
+          // them here too for other user-initiated sign-out paths.
+          await _clearUserFromLocalCaches();
+        }
+
+        _isUsingCachedSessionWithoutSupabaseSession = false;
+        _subscriptionValidated = false;
+        _errorMessage = null;
+        _status = AuthStatus.unauthenticated;
+        _currentUser = null;
+        DeviceLoggerService.capture(
+          'Auth provider accepted sign-out event '
+          '(reason=${event.signOutReason?.name ?? 'unknown'})',
+          severity: 'WARNING',
+        );
+        notifyListeners();
+        return;
+      }
+
       if (_currentUser != null && hasPersistedSession) {
+        _isUsingCachedSessionWithoutSupabaseSession = true;
         _hasNetwork().then((online) {
           if (!online) {
             _subscriptionValidated = true;
@@ -175,16 +328,23 @@ class AuthProvider with ChangeNotifier {
       }
 
       if (_currentUser != null) {
-        _hasNetwork().then((online) {
-          if (!online) {
-            _subscriptionValidated = true;
-            _status = AuthStatus.authenticated;
-            _errorMessage = null;
-            notifyListeners();
-          } else {
-            _goUnauthenticated();
-          }
-        });
+        // A null session on a non-sign-out event is transient (for example,
+        // initial session restore). Do not invalidate a user already loaded
+        // in memory based on a reachability probe; the API can still be down
+        // while the device has internet access.
+        _isUsingCachedSessionWithoutSupabaseSession =
+            _supabase.auth.currentSession == null;
+        if (_isUsingCachedSessionWithoutSupabaseSession) {
+          _subscriptionValidated = true;
+        }
+        _status = AuthStatus.authenticated;
+        _errorMessage = null;
+        DeviceLoggerService.capture(
+          'Auth provider retained current user after null-session event '
+          '(${event.event.name})',
+          severity: 'WARNING',
+        );
+        notifyListeners();
         return;
       }
 
@@ -197,8 +357,16 @@ class AuthProvider with ChangeNotifier {
   }
 
   void _goUnauthenticated() {
-    final cached = _localStorage?.getCachedUser();
+    final cached = _getCachedUser();
     if (isPersistentLoginEnabled && cached != null) {
+      DeviceLoggerService.setRecoveryNotice(null);
+      _isUsingCachedSessionWithoutSupabaseSession =
+          _supabase.auth.currentSession == null;
+      DeviceLoggerService.capture(
+        'Auth state had no session; restored cached user '
+        '(auto-login enabled, cached user available)',
+        severity: 'WARNING',
+      );
       _currentUser = cached;
       _status = AuthStatus.authenticated;
       _errorMessage = null;
@@ -207,6 +375,11 @@ class AuthProvider with ChangeNotifier {
       return;
     }
 
+    DeviceLoggerService.capture(
+      'Auth state became unauthenticated: auto-login=$isPersistentLoginEnabled, '
+      'cached user available=${cached != null}',
+      severity: 'WARNING',
+    );
     _status = AuthStatus.unauthenticated;
     _currentUser = null;
     notifyListeners();
@@ -214,7 +387,19 @@ class AuthProvider with ChangeNotifier {
 
   // ────────────────────────── Local storage init ──────────────────────────
 
-  Future<void> _restoreCachedUserForOfflineStartup(UserModel cachedUser) async {
+  Future<void> _restoreCachedUserForOfflineStartup(
+    UserModel cachedUser, {
+    String? recoveryNotice,
+  }) async {
+    _isUsingCachedSessionWithoutSupabaseSession =
+        _supabase.auth.currentSession == null;
+    if (recoveryNotice == null) {
+      DeviceLoggerService.setRecoveryNotice(null);
+    }
+    DeviceLoggerService.capture(
+      'Restoring cached user after ${_isUsingCachedSessionWithoutSupabaseSession ? 'missing Supabase session' : 'offline/uncertain auth check'}',
+      severity: 'WARNING',
+    );
     debugPrint(
         '[AuthProvider] Offline auto-login: restoring ${cachedUser.email}');
     _currentUser = cachedUser;
@@ -224,6 +409,9 @@ class AuthProvider with ChangeNotifier {
     try {
       await _cacheBusinessForUser(_resolveCurrentBusinessId(cachedUser));
     } catch (_) {}
+    if (recoveryNotice != null) {
+      DeviceLoggerService.setRecoveryNotice(recoveryNotice);
+    }
     notifyListeners();
   }
 
@@ -231,15 +419,53 @@ class AuthProvider with ChangeNotifier {
     try {
       _localStorage = await LocalUserStorage.create();
       _localBusinessStorage = await LocalBusinessStorage.create();
+      await _localStorage!.reload();
 
-      final autoLogin = _localStorage!.isAutoLoginEnabled();
-      final cached = _localStorage!.getCachedUser();
+      UserModel? sqliteCachedUser;
+      try {
+        sqliteCachedUser = await _localAuthCache.readUser();
+      } catch (e) {
+        DeviceLoggerService.capture(
+          'SQLite user cache read failed (${e.runtimeType})',
+          severity: 'ERROR',
+        );
+      }
+      _sqliteCachedUser = sqliteCachedUser;
+
+      final preferencesCachedUser = _localStorage!.getCachedUser();
+      final cached = preferencesCachedUser ?? sqliteCachedUser;
+      final autoLogin = _localStorage!.isAutoLoginEnabled() ||
+          sqliteCachedUser != null;
+      DeviceLoggerService.capture(
+        'Auth cache initialized: auto-login=$autoLogin, '
+        'SharedPreferences user=${preferencesCachedUser != null}, '
+        'SQLite user=${sqliteCachedUser != null}',
+      );
       debugPrint(
           '[AuthProvider] Local storage ready. autoLogin=$autoLogin cached=${cached != null}');
+
+      if (sqliteCachedUser != null && preferencesCachedUser == null) {
+        try {
+          final repaired = await _localStorage!.saveUser(sqliteCachedUser);
+          DeviceLoggerService.capture(
+            'Recovered SQLite profile into SharedPreferences: $repaired',
+            severity: repaired ? 'SUCCESS' : 'WARNING',
+          );
+        } catch (e) {
+          DeviceLoggerService.capture(
+            'Could not repair SharedPreferences from SQLite cache (${e.runtimeType})',
+            severity: 'ERROR',
+          );
+        }
+      }
 
       if (autoLogin && cached != null) {
         var supaUser = _supabase.auth.currentUser;
         final online = await _hasNetwork();
+        DeviceLoggerService.capture(
+          'Auth startup session check: online=$online, '
+          'Supabase session available=${supaUser != null}',
+        );
         debugPrint(
             '[AuthProvider] Startup: supaUser=${supaUser?.id}, online=$online');
 
@@ -255,12 +481,16 @@ class AuthProvider with ChangeNotifier {
           }
 
           if (supaUser == null && online) {
-            await _localStorage!.clearUser();
-            _currentUser = null;
-            _status = AuthStatus.unauthenticated;
-            _subscriptionValidated = false;
-            _errorMessage = 'Your saved session expired. Please sign in again.';
-            notifyListeners();
+            DeviceLoggerService.capture(
+              'No Supabase session was available after startup restore; retaining the persistent local user cache',
+              severity: 'WARNING',
+            );
+            await _restoreCachedUserForOfflineStartup(
+              cached,
+              recoveryNotice: 'Your saved workspace was restored from this '
+                  'device, but cloud sign-in could not be verified. '
+                  'Reconnect and sign in again to sync.',
+            );
             return;
           }
 
@@ -269,10 +499,16 @@ class AuthProvider with ChangeNotifier {
         }
 
         _currentUser = cached;
+        _isUsingCachedSessionWithoutSupabaseSession = false;
+        DeviceLoggerService.setRecoveryNotice(null);
         _status = AuthStatus.authenticated;
         _errorMessage = null;
 
         if (!online) {
+          DeviceLoggerService.capture(
+            'Offline startup: kept cached user and skipped backend profile refresh',
+            severity: 'WARNING',
+          );
           _subscriptionValidated = true;
           notifyListeners();
           return;
@@ -282,6 +518,14 @@ class AuthProvider with ChangeNotifier {
         _refreshFromBackend(cached.id);
       }
     } catch (e) {
+      DeviceLoggerService.setRecoveryNotice(
+        'We could not read your saved sign-in. Please sign in again.',
+      );
+      DeviceLoggerService.capture(
+        'Auth local-storage initialization failed (${e.runtimeType}); '
+        'cached user available=${_getCachedUser() != null}',
+        severity: 'ERROR',
+      );
       debugPrint('[AuthProvider] Local storage init error: $e');
       _status = AuthStatus.unauthenticated;
     } finally {
@@ -304,17 +548,29 @@ class AuthProvider with ChangeNotifier {
       if (!access.isAllowed || access.user == null) {
         if (_canKeepCachedUserAfterUncertainAccessFailure(
             userId, access.message)) {
+          DeviceLoggerService.capture(
+            'Backend profile refresh was uncertain; retaining cached user',
+            severity: 'WARNING',
+          );
           await _restoreCachedUserForOfflineStartup(
-              _localStorage!.getCachedUser()!);
+              _getCachedUser()!);
           return;
         }
+        DeviceLoggerService.capture(
+          'Backend profile refresh denied access; clearing authenticated state',
+          severity: 'ERROR',
+        );
         await _forceLogoutBecauseAccessChanged(
           access.message ?? 'This account is no longer available.',
         );
         return;
       }
+      DeviceLoggerService.capture(
+        'Backend profile refresh succeeded; updating cached user',
+        severity: 'SUCCESS',
+      );
       _currentUser = access.user;
-      await _localStorage!.saveUser(access.user!);
+      await _saveUserToLocalCaches(access.user!);
       await _cacheBusinessForUser(_resolveCurrentBusinessId(access.user));
       // Validate subscription.
       if (_currentUser != null) {
@@ -327,6 +583,11 @@ class AuthProvider with ChangeNotifier {
       }
       notifyListeners();
     } catch (e) {
+      DeviceLoggerService.capture(
+        'Backend profile refresh failed (${e.runtimeType}); '
+        'cached user retained=${_currentUser != null}',
+        severity: 'ERROR',
+      );
       debugPrint('[AuthProvider] Backend refresh failed: $e');
     }
   }
@@ -337,6 +598,8 @@ class AuthProvider with ChangeNotifier {
     required String email,
     required String password,
   }) async {
+    await _initializationCompleter.future;
+    DeviceLoggerService.setRecoveryNotice(null);
     try {
       _status = AuthStatus.loading;
       _errorMessage = null;
@@ -353,11 +616,18 @@ class AuthProvider with ChangeNotifier {
       }
 
       _currentUser = user;
+      _isUsingCachedSessionWithoutSupabaseSession = false;
       _status = AuthStatus.authenticated;
       _errorMessage = null;
 
+      final saved = await _saveUserToLocalCaches(user);
+      if (!saved) {
+        DeviceLoggerService.setRecoveryNotice(
+          'You are signed in, but this device could not save your login. '
+          'Check device storage before closing the app.',
+        );
+      }
       if (_localStorage != null) {
-        await _localStorage!.saveUser(user);
         final bId = user.primaryBusinessId;
         if (bId.isNotEmpty && _localBusinessStorage != null) {
           await _localBusinessStorage!.setCurrentBusiness(bId);
@@ -388,6 +658,8 @@ class AuthProvider with ChangeNotifier {
     required String workerId,
     required String password,
   }) async {
+    await _initializationCompleter.future;
+    DeviceLoggerService.setRecoveryNotice(null);
     try {
       _status = AuthStatus.loading;
       _errorMessage = null;
@@ -399,11 +671,16 @@ class AuthProvider with ChangeNotifier {
       );
 
       _currentUser = user;
+      _isUsingCachedSessionWithoutSupabaseSession = false;
       _status = AuthStatus.authenticated;
       _errorMessage = null;
 
-      if (_localStorage != null) {
-        await _localStorage!.saveUser(user);
+      final saved = await _saveUserToLocalCaches(user);
+      if (!saved) {
+        DeviceLoggerService.setRecoveryNotice(
+          'You are signed in, but this device could not save your login. '
+          'Check device storage before closing the app.',
+        );
       }
 
       // Resolve business from memberships.
@@ -511,7 +788,8 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  Future<bool> resetPassword(String email, {String accountType = 'owner'}) async {
+  Future<bool> resetPassword(String email,
+      {String accountType = 'owner'}) async {
     try {
       _errorMessage = null;
       await _authService.requestPasswordReset(
@@ -550,24 +828,54 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<void> logout() async {
+    DeviceLoggerService.setRecoveryNotice(null);
+    DeviceLoggerService.capture(
+      'Explicit logout requested; clearing locally cached user and business data',
+      severity: 'WARNING',
+    );
+    final cachesCleared = await _clearUserFromLocalCaches();
+    var businessCacheCleared = true;
     try {
-      await _localStorage?.clearUser();
       await _localBusinessStorage?.clearAllBusinessData();
-      _profilePollTimer?.cancel();
-      _profilePollTimer = null;
-      await _supabase.auth.signOut();
-      _status = AuthStatus.unauthenticated;
-      _currentUser = null;
-      _errorMessage = null;
-      _subscriptionValidated = false;
-      notifyListeners();
     } catch (e) {
-      _errorMessage = 'Failed to logout. Please try again.';
-      notifyListeners();
+      businessCacheCleared = false;
+      DeviceLoggerService.capture(
+        'Business cache clear failed during logout (${e.runtimeType})',
+        severity: 'ERROR',
+      );
     }
+
+    _profilePollTimer?.cancel();
+    _profilePollTimer = null;
+    var signedOut = true;
+    try {
+      await _supabase.auth.signOut();
+    } catch (e) {
+      signedOut = false;
+      DeviceLoggerService.capture(
+        'Supabase sign-out failed (${e.runtimeType})',
+        severity: 'ERROR',
+      );
+    }
+
+    _status = AuthStatus.unauthenticated;
+    _currentUser = null;
+    _isUsingCachedSessionWithoutSupabaseSession = false;
+    _subscriptionValidated = false;
+    final allLocalCachesCleared = cachesCleared && businessCacheCleared;
+    _errorMessage = signedOut && allLocalCachesCleared
+        ? null
+        : 'Logout did not complete cleanly. Please retry while online.';
+    if (!allLocalCachesCleared) {
+      DeviceLoggerService.setRecoveryNotice(
+        'This device could not clear all saved sign-in data. '
+        'Please retry logout while online.',
+      );
+    }
+    notifyListeners();
   }
 
-  Future<void> updateProfile({
+  Future<bool> updateProfile({
     String? email,
     String? fullName,
     String? phoneNumber,
@@ -579,7 +887,11 @@ class AuthProvider with ChangeNotifier {
     String? currentBusinessId,
     bool? isOwner,
   }) async {
-    if (_currentUser == null) return;
+    if (_currentUser == null) {
+      _errorMessage = 'No user logged in';
+      notifyListeners();
+      return false;
+    }
     try {
       final nextBusinessId = businessId ?? _currentUser!.businessId;
       final nextCurrentBusinessId =
@@ -603,16 +915,20 @@ class AuthProvider with ChangeNotifier {
       );
       await _authRepo.updateUser(updated);
       _currentUser = updated;
-      await _localStorage?.saveUser(updated);
+      await _saveUserToLocalCaches(updated);
       if (nextCurrentBusinessId != null &&
           nextCurrentBusinessId.isNotEmpty &&
           _localBusinessStorage != null) {
         await _localBusinessStorage!.setCurrentBusiness(nextCurrentBusinessId);
       }
       notifyListeners();
+      _errorMessage = null;
+      return true;
     } catch (e) {
-      _errorMessage = 'Failed to update profile. Please try again.';
+      _errorMessage =
+          _extractMessage(e, fallback: 'Failed to update profile.');
       notifyListeners();
+      return false;
     }
   }
 
@@ -645,7 +961,7 @@ class AuthProvider with ChangeNotifier {
           _currentUser!.copyWith(email: normalized, updatedAt: DateTime.now());
       await _authRepo.updateUser(updated);
       _currentUser = updated;
-      await _localStorage?.saveUser(updated);
+      await _saveUserToLocalCaches(updated);
       _errorMessage = null;
       notifyListeners();
       return true;
@@ -717,7 +1033,7 @@ class AuthProvider with ChangeNotifier {
       await _authRepo.updateUser(updatedUser);
       if (_currentUser?.id == updatedUser.id) {
         _currentUser = updatedUser;
-        await _localStorage?.saveUser(updatedUser);
+        await _saveUserToLocalCaches(updatedUser);
         notifyListeners();
       }
     } catch (e) {
@@ -729,11 +1045,28 @@ class AuthProvider with ChangeNotifier {
 
   /// Refresh the current user profile from backend.
   Future<void> refresh() async {
+    if (_isUsingCachedSessionWithoutSupabaseSession &&
+        _supabase.auth.currentSession == null) {
+      DeviceLoggerService.capture(
+        'Profile refresh skipped: only a local cached session is available; preserving offline dashboard',
+        severity: 'WARNING',
+      );
+      return;
+    }
     final online = await _hasNetwork();
     if (!online) {
       if (_currentUser != null) {
+        DeviceLoggerService.capture(
+          'Profile refresh skipped: offline; keeping current cached user',
+          severity: 'WARNING',
+        );
         _subscriptionValidated = true;
         notifyListeners();
+      } else {
+        DeviceLoggerService.capture(
+          'Profile refresh skipped: offline and no current user is loaded',
+          severity: 'ERROR',
+        );
       }
       return;
     }
@@ -744,19 +1077,32 @@ class AuthProvider with ChangeNotifier {
       final access = await _authService.resolveUserAccess(id);
       if (!access.isAllowed || access.user == null) {
         if (_canKeepCachedUserAfterUncertainAccessFailure(id, access.message)) {
+          DeviceLoggerService.capture(
+            'Profile refresh returned uncertain access result; retaining cached user',
+            severity: 'WARNING',
+          );
           _status = AuthStatus.authenticated;
           _errorMessage = null;
           _subscriptionValidated = _currentUser?.isSubscriptionValid == true;
           notifyListeners();
           return;
         }
+        DeviceLoggerService.capture(
+          'Profile refresh denied access; forcing logout',
+          severity: 'ERROR',
+        );
         await _forceLogoutBecauseAccessChanged(
           access.message ?? 'This account is no longer available.',
         );
         return;
       }
+      DeviceLoggerService.capture(
+        'Profile refresh succeeded; current user profile updated',
+        severity: 'SUCCESS',
+      );
       _currentUser = access.user;
-      await _localStorage?.saveUser(access.user!);
+      _isUsingCachedSessionWithoutSupabaseSession = false;
+      await _saveUserToLocalCaches(access.user!);
       try {
         await _cacheBusinessForUser(_resolveCurrentBusinessId(access.user));
       } catch (_) {}
@@ -770,6 +1116,11 @@ class AuthProvider with ChangeNotifier {
       }
       notifyListeners();
     } catch (e) {
+      DeviceLoggerService.capture(
+        'Profile refresh failed (${e.runtimeType}); '
+        'current user retained=${_currentUser != null}',
+        severity: 'ERROR',
+      );
       debugPrint('[AuthProvider] refresh error: $e');
     }
   }
@@ -783,7 +1134,7 @@ class AuthProvider with ChangeNotifier {
       );
       await _authRepo.setCurrentBusiness(businessId);
       _currentUser = updated;
-      await _localStorage?.saveUser(updated);
+      await _saveUserToLocalCaches(updated);
       if (_localBusinessStorage != null) {
         await _localBusinessStorage!.setCurrentBusiness(businessId);
       }
@@ -808,12 +1159,10 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<void> setPersistentLogin(bool enabled) async {
-    if (_localStorage != null) {
-      if (enabled && _currentUser != null) {
-        await _localStorage!.saveUser(_currentUser!);
-      } else {
-        await _localStorage!.clearUser();
-      }
+    if (enabled && _currentUser != null) {
+      await _saveUserToLocalCaches(_currentUser!);
+    } else {
+      await _clearUserFromLocalCaches();
     }
   }
 
@@ -831,7 +1180,7 @@ class AuthProvider with ChangeNotifier {
     try {
       final online = await _hasNetwork();
       if (!online) {
-        final cached = _localStorage?.getCachedUser();
+        final cached = _getCachedUser();
         if (cached != null && cached.id == uid) {
           _currentUser = cached;
           _status = AuthStatus.authenticated;
@@ -849,7 +1198,7 @@ class AuthProvider with ChangeNotifier {
         if (_canKeepCachedUserAfterUncertainAccessFailure(
             uid, access.message)) {
           await _restoreCachedUserForOfflineStartup(
-              _localStorage!.getCachedUser()!);
+              _getCachedUser()!);
           return;
         }
         await _forceLogoutBecauseAccessChanged(
@@ -859,11 +1208,12 @@ class AuthProvider with ChangeNotifier {
       }
 
       _currentUser = access.user;
+      _isUsingCachedSessionWithoutSupabaseSession = false;
       _status = AuthStatus.authenticated;
       _errorMessage = null;
 
       if (_localStorage != null && _currentUser != null) {
-        await _localStorage!.saveUser(_currentUser!);
+        await _saveUserToLocalCaches(_currentUser!);
         await _cacheBusinessForUser(_resolveCurrentBusinessId(_currentUser));
       }
 
@@ -879,7 +1229,7 @@ class AuthProvider with ChangeNotifier {
       _subscribeToProfile(uid);
       notifyListeners();
     } catch (e) {
-      final cached = _localStorage?.getCachedUser();
+      final cached = _getCachedUser();
       if (isPersistentLoginEnabled && cached != null && cached.id == uid) {
         await _restoreCachedUserForOfflineStartup(cached);
         return;
@@ -918,7 +1268,7 @@ class AuthProvider with ChangeNotifier {
 
         if (changed) {
           _currentUser = updated;
-          _localStorage?.saveUser(updated);
+          await _saveUserToLocalCaches(updated);
           notifyListeners();
         }
       } catch (e) {
@@ -958,7 +1308,7 @@ class AuthProvider with ChangeNotifier {
     String userId,
     String? message,
   ) {
-    final cached = _localStorage?.getCachedUser();
+    final cached = _getCachedUser();
     if (!isPersistentLoginEnabled || cached == null || cached.id != userId) {
       return false;
     }
@@ -985,7 +1335,14 @@ class AuthProvider with ChangeNotifier {
 
   Future<void> _cacheBusinessForUser(String? businessId) async {
     final id = businessId?.trim() ?? '';
-    if (id.isEmpty || _localBusinessStorage == null) return;
+    if (id.isEmpty || _localBusinessStorage == null) {
+      DeviceLoggerService.capture(
+        'Business cache skipped: business reference available=${id.isNotEmpty}, '
+        'local business storage available=${_localBusinessStorage != null}',
+        severity: 'WARNING',
+      );
+      return;
+    }
     try {
       await _localBusinessStorage!.setCurrentBusiness(id);
       // BusinessRepositorySupabase.getBusinessById returns a raw,
@@ -1001,6 +1358,10 @@ class AuthProvider with ChangeNotifier {
         await _localBusinessStorage!.saveBusiness(business);
       }
     } catch (e) {
+      DeviceLoggerService.capture(
+        'Failed to cache the current business (${e.runtimeType})',
+        severity: 'ERROR',
+      );
       debugPrint('[AuthProvider] Cache business error: $e');
     }
   }
@@ -1018,7 +1379,7 @@ class AuthProvider with ChangeNotifier {
       if (user.businessId.isEmpty) {
         final updated = user.copyWith(businessId: bizId);
         _currentUser = updated;
-        await _localStorage?.saveUser(updated);
+        await _saveUserToLocalCaches(updated);
       }
     }
   }
@@ -1038,6 +1399,7 @@ class AuthProvider with ChangeNotifier {
   Future<void> _rejectWorkerDueToBusinessSubscription() async {
     _profilePollTimer?.cancel();
     _profilePollTimer = null;
+    await _clearUserFromLocalCaches();
     await _supabase.auth.signOut();
     _currentUser = null;
     _status = AuthStatus.unauthenticated;
@@ -1050,6 +1412,7 @@ class AuthProvider with ChangeNotifier {
   Future<void> _rejectWorkerDueToOwnerRestriction(String message) async {
     _profilePollTimer?.cancel();
     _profilePollTimer = null;
+    await _clearUserFromLocalCaches();
     await _supabase.auth.signOut();
     _currentUser = null;
     _status = AuthStatus.unauthenticated;

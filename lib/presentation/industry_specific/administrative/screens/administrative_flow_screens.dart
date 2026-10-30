@@ -17,8 +17,150 @@ import '../../../../providers/business_provider.dart';
 import '../../../../providers/theme_provider.dart';
 import '../../../../core/utils/worker_permissions.dart';
 import '../../../../services/web_download.dart' as web_download;
-import '../../../workers/screens/add_worker_screen.dart';
 import '../providers/administrative_provider.dart';
+
+String _paymentMethodLabel(Object? value) => switch (value?.toString()) {
+      'cash' => 'Cash',
+      'transfer' => 'Transfer',
+      'mixed' => 'Mixed',
+      _ => 'Not recorded',
+    };
+
+Future<void> _showRevenueReceiptDialog(
+  BuildContext context, {
+  required double amount,
+  required String description,
+  required String paymentMethod,
+  required String clientName,
+}) async {
+  final businessName =
+      context.read<BusinessProvider>().currentBusiness?.name.trim();
+  final issuedAt = DateTime.now();
+  final receiptNumber = 'REC-${issuedAt.millisecondsSinceEpoch}';
+  Future<Uint8List> buildReceiptPdf() async {
+    final document = pw.Document();
+    document.addPage(pw.Page(
+      pageFormat: PdfPageFormat.a4,
+      build: (_) => pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    businessName?.isNotEmpty == true ? businessName! : 'ManageCare',
+                    style: pw.TextStyle(
+                        fontSize: 22, fontWeight: pw.FontWeight.bold),
+                  ),
+                  pw.Text('Revenue receipt'),
+                ],
+              ),
+              pw.Container(
+                padding:
+                    const pw.EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: pw.BoxDecoration(
+                  border: pw.Border.all(color: PdfColors.green700, width: 2),
+                ),
+                child: pw.Text(
+                  'PAID',
+                  style: pw.TextStyle(
+                    color: PdfColors.green700,
+                    fontSize: 18,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          pw.SizedBox(height: 28),
+          pw.Text('Receipt number: $receiptNumber'),
+          pw.Text('Date paid: ${issuedAt.toLocal()}'),
+          pw.Text('Received from: $clientName'),
+          pw.SizedBox(height: 24),
+          pw.Table.fromTextArray(
+            headers: const ['Description', 'Payment method', 'Amount'],
+            data: [
+              [description, _paymentMethodLabel(paymentMethod), _currency(amount)],
+            ],
+          ),
+          pw.SizedBox(height: 24),
+          pw.Align(
+            alignment: pw.Alignment.centerRight,
+            child: pw.Text(
+              'Total paid: ${_currency(amount)}',
+              style:
+                  pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    ));
+    return document.save();
+  }
+
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Revenue receipt'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Center(
+            child: Chip(
+              avatar: Icon(Icons.verified_outlined, color: Colors.green),
+              label: Text('PAID'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text('Receipt $receiptNumber'),
+          Text(
+              'Date: ${MaterialLocalizations.of(context).formatFullDate(issuedAt)}'),
+          Text('Client: $clientName'),
+          Text('Payment: ${_paymentMethodLabel(paymentMethod)}'),
+          Text('Description: $description'),
+          const SizedBox(height: 8),
+          Text('Total: ${_currency(amount)}',
+              style: const TextStyle(fontWeight: FontWeight.bold)),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () async {
+            try {
+              await Printing.layoutPdf(onLayout: (_) => buildReceiptPdf());
+            } catch (error) {
+              if (dialogContext.mounted) {
+                _message(dialogContext, 'Unable to print receipt: $error');
+              }
+            }
+          },
+          child: const Text('Print'),
+        ),
+        FilledButton.icon(
+          onPressed: () async {
+            try {
+              await Printing.sharePdf(
+                bytes: await buildReceiptPdf(),
+                filename: '$receiptNumber.pdf',
+              );
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
+            } catch (error) {
+              if (dialogContext.mounted) {
+                _message(dialogContext, 'Unable to generate receipt: $error');
+              }
+            }
+          },
+          icon: const Icon(Icons.ios_share_outlined),
+          label: const Text('Share PDF'),
+        ),
+      ],
+    ),
+  );
+}
 
 Future<void> _openAdministrativeFile(String value, String fileName) async {
   final uri = Uri.tryParse(value);
@@ -80,13 +222,19 @@ class _AdministrativeClientProfileScreenState
       builder: (_) => AdministrativeEditClientScreen(
         clientId: widget.clientId!,
         name: client['name']?.toString() ?? widget.clientName,
-        companyName: (client['companyName'] ?? client['company_name'])?.toString() ?? widget.companyName,
+        companyName:
+            (client['companyName'] ?? client['company_name'])?.toString() ??
+                widget.companyName,
         location: client['location']?.toString() ?? widget.location,
-        contactAddress: (client['contactAddress'] ?? client['contact_address'])?.toString() ?? '',
+        contactAddress: (client['contactAddress'] ?? client['contact_address'])
+                ?.toString() ??
+            '',
       ),
     ));
     if (changed == true && mounted) {
-      setState(() { _details = _loadDetails(); });
+      setState(() {
+        _details = _loadDetails();
+      });
     }
   }
 
@@ -138,7 +286,8 @@ class _AdministrativeClientProfileScreenState
                         });
                       } catch (error) {
                         if (context.mounted) {
-                          _message(context, 'Unable to update assignment: $error');
+                          _message(
+                              context, 'Unable to update assignment: $error');
                         }
                       }
                     },
@@ -149,9 +298,13 @@ class _AdministrativeClientProfileScreenState
           ),
         ),
       );
-      if (mounted) setState(() { _details = _loadDetails(); });
+      if (mounted)
+        setState(() {
+          _details = _loadDetails();
+        });
     } catch (error) {
-      if (mounted) _message(context, 'Unable to load staff assignments: $error');
+      if (mounted)
+        _message(context, 'Unable to load staff assignments: $error');
     }
   }
 
@@ -208,13 +361,24 @@ class _AdministrativeClientProfileScreenState
                       );
                     }
                     if (snapshot.hasError) {
-                      return _LoadError(onRetry: () => setState(() { _details = _loadDetails(); }));
+                      return _LoadError(
+                          onRetry: () => setState(() {
+                                _details = _loadDetails();
+                              }));
                     }
                     final client = snapshot.data ?? const <String, dynamic>{};
-                    final name = client['name']?.toString() ?? widget.clientName;
-                    final company = (client['companyName'] ?? client['company_name'])?.toString() ?? widget.companyName;
-                    final location = client['location']?.toString() ?? widget.location;
-                    final address = (client['contactAddress'] ?? client['contact_address'])?.toString() ?? '';
+                    final name =
+                        client['name']?.toString() ?? widget.clientName;
+                    final company =
+                        (client['companyName'] ?? client['company_name'])
+                                ?.toString() ??
+                            widget.companyName;
+                    final location =
+                        client['location']?.toString() ?? widget.location;
+                    final address =
+                        (client['contactAddress'] ?? client['contact_address'])
+                                ?.toString() ??
+                            '';
                     final workers = ((client['workers'] as List?) ?? const [])
                         .whereType<Map>()
                         .toList();
@@ -222,8 +386,7 @@ class _AdministrativeClientProfileScreenState
                         ? client['isActive'] as bool
                         : client['is_active'] is bool
                             ? client['is_active'] as bool
-                            : (client['archivedAt'] ??
-                                    client['archived_at']) ==
+                            : (client['archivedAt'] ?? client['archived_at']) ==
                                 null;
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -233,54 +396,87 @@ class _AdministrativeClientProfileScreenState
                           decoration: BoxDecoration(
                             color: Theme.of(context).cardColor,
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Theme.of(context).dividerColor),
+                            border: Border.all(
+                                color: Theme.of(context).dividerColor),
                           ),
                           child: Row(children: [
                             CircleAvatar(
                               radius: 25,
-                              backgroundColor: AppColors.primary.withOpacity(.1),
-                              child: Text(name.isEmpty ? '?' : name.substring(0, 1),
-                                  style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),
+                              backgroundColor:
+                                  AppColors.primary.withOpacity(.1),
+                              child: Text(
+                                  name.isEmpty ? '?' : name.substring(0, 1),
+                                  style: const TextStyle(
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.w700)),
                             ),
                             const SizedBox(width: 12),
-                            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text(name, style: Theme.of(context).textTheme.titleLarge),
-                              const SizedBox(height: 3),
-                              Text([company, location].where((value) => value.isNotEmpty).join(' | '),
-                                  style: Theme.of(context).textTheme.bodySmall),
-                              const SizedBox(height: 7),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: (active ? AppColors.secondary : Colors.grey).withOpacity(.12),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(active ? 'Active' : 'Archived',
-                                    style: TextStyle(color: active ? AppColors.secondaryDark : Colors.grey, fontSize: 11, fontWeight: FontWeight.w700)),
-                              ),
-                            ])),
+                            Expanded(
+                                child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                  Text(name,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleLarge),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                      [company, location]
+                                          .where((value) => value.isNotEmpty)
+                                          .join(' | '),
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall),
+                                  const SizedBox(height: 7),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: (active
+                                              ? AppColors.secondary
+                                              : Colors.grey)
+                                          .withOpacity(.12),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(active ? 'Active' : 'Archived',
+                                        style: TextStyle(
+                                            color: active
+                                                ? AppColors.secondaryDark
+                                                : Colors.grey,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700)),
+                                  ),
+                                ])),
                           ]),
-                        ).animate().fadeIn(duration: 260.ms).slideY(begin: .04, end: 0),
+                        )
+                            .animate()
+                            .fadeIn(duration: 260.ms)
+                            .slideY(begin: .04, end: 0),
                         const SizedBox(height: 24),
                         const _SectionTitle('Client Information'),
                         if (company.isNotEmpty) _InfoRow('Company', company),
                         if (location.isNotEmpty) _InfoRow('Location', location),
-                        if (address.isNotEmpty) _InfoRow('Contact address', address),
+                        if (address.isNotEmpty)
+                          _InfoRow('Contact address', address),
                         if (widget.clientId != null && canManageClient) ...[
                           const SizedBox(height: 16),
                           Wrap(spacing: 8, runSpacing: 8, children: [
                             FilledButton.icon(
-                              onPressed: () => DefaultTabController.of(context).animateTo(3),
+                              onPressed: () =>
+                                  DefaultTabController.of(context).animateTo(3),
                               icon: const Icon(Icons.add_task),
                               label: const Text('Create Task'),
                             ),
                             OutlinedButton.icon(
-                              onPressed: () => DefaultTabController.of(context).animateTo(5),
+                              onPressed: () =>
+                                  DefaultTabController.of(context).animateTo(5),
                               icon: const Icon(Icons.trending_up),
                               label: const Text('Record Revenue'),
                             ),
                             OutlinedButton.icon(
-                              onPressed: () => DefaultTabController.of(context).animateTo(4),
+                              onPressed: () =>
+                                  DefaultTabController.of(context).animateTo(4),
                               icon: const Icon(Icons.trending_down),
                               label: const Text('Record Expense'),
                             ),
@@ -292,11 +488,13 @@ class _AdministrativeClientProfileScreenState
                           contentPadding: EdgeInsets.zero,
                           leading: Icon(Icons.lock_outline),
                           title: Text('Credentials are masked'),
-                          subtitle: Text('Use Client Access & Security to manage protected access.'),
+                          subtitle: Text(
+                              'Use Client Access & Security to manage protected access.'),
                         ),
                         if (canManageClient)
                           OutlinedButton.icon(
-                            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                            onPressed: () =>
+                                Navigator.of(context).push(MaterialPageRoute(
                               builder: (_) => AdministrativeSecurityScreen(
                                 clientId: widget.clientId!,
                                 clientName: name,
@@ -314,14 +512,19 @@ class _AdministrativeClientProfileScreenState
                           )
                         else
                           ...workers.map((worker) {
-                            final details = worker['worker'] as Map? ?? const {};
+                            final details =
+                                worker['worker'] as Map? ?? const {};
                             return ListTile(
                               contentPadding: EdgeInsets.zero,
                               leading: CircleAvatar(
-                                child: Text((details['full_name']?.toString() ?? 'W').substring(0, 1)),
+                                child: Text(
+                                    (details['full_name']?.toString() ?? 'W')
+                                        .substring(0, 1)),
                               ),
-                              title: Text(details['full_name']?.toString() ?? 'Worker'),
-                              subtitle: Text(details['role']?.toString() ?? 'Staff'),
+                              title: Text(
+                                  details['full_name']?.toString() ?? 'Worker'),
+                              subtitle:
+                                  Text(details['role']?.toString() ?? 'Staff'),
                             );
                           }),
                         if (canManageClient)
@@ -342,10 +545,30 @@ class _AdministrativeClientProfileScreenState
               canManageDocuments: canManageClient,
             ),
             AdministrativeObligationsScreen(clientName: widget.clientName),
-            _ClientRecordsTab(clientId: widget.clientId, clientName: widget.clientName, canManage: canManageClient, title: 'Tasks', type: _ClientRecordType.tasks),
-            _ClientRecordsTab(clientId: widget.clientId, clientName: widget.clientName, canManage: canManageClient, title: 'Expenses', type: _ClientRecordType.expenses),
-            _ClientRecordsTab(clientId: widget.clientId, clientName: widget.clientName, canManage: canManageClient, title: 'Revenue', type: _ClientRecordType.revenue),
-            _ClientRecordsTab(clientId: widget.clientId, clientName: widget.clientName, canManage: canManageClient, title: 'Activity', type: _ClientRecordType.activity),
+            _ClientRecordsTab(
+                clientId: widget.clientId,
+                clientName: widget.clientName,
+                canManage: canManageClient,
+                title: 'Tasks',
+                type: _ClientRecordType.tasks),
+            _ClientRecordsTab(
+                clientId: widget.clientId,
+                clientName: widget.clientName,
+                canManage: canManageClient,
+                title: 'Expenses',
+                type: _ClientRecordType.expenses),
+            _ClientRecordsTab(
+                clientId: widget.clientId,
+                clientName: widget.clientName,
+                canManage: canManageClient,
+                title: 'Revenue',
+                type: _ClientRecordType.revenue),
+            _ClientRecordsTab(
+                clientId: widget.clientId,
+                clientName: widget.clientName,
+                canManage: canManageClient,
+                title: 'Activity',
+                type: _ClientRecordType.activity),
           ],
         ),
       ),
@@ -391,13 +614,15 @@ class _AdministrativeDocumentsScreenState
     }
     final provider = context.read<AdministrativeProvider>();
     _folders = provider.loadFolders(widget.clientId!);
-    _documents = provider.loadDocuments(widget.clientId!, query: _query, folderId: _folderId);
+    _documents = provider.loadDocuments(widget.clientId!,
+        query: _query, folderId: _folderId);
   }
 
   @override
   Widget build(BuildContext context) {
     if (widget.clientId == null) {
-      return const Center(child: Text('Client documents require a saved client record.'));
+      return const Center(
+          child: Text('Client documents require a saved client record.'));
     }
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -428,10 +653,16 @@ class _AdministrativeDocumentsScreenState
             onChanged: (value) {
               setState(() {
                 _query = value.trim();
-                _documents = context.read<AdministrativeProvider>().loadDocuments(widget.clientId!, query: _query, folderId: _folderId);
+                _documents = context
+                    .read<AdministrativeProvider>()
+                    .loadDocuments(widget.clientId!,
+                        query: _query, folderId: _folderId);
               });
             },
-            decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search documents', border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search),
+                hintText: 'Search documents',
+                border: OutlineInputBorder()),
           ),
           const SizedBox(height: 10),
           FutureBuilder<List<Map<String, dynamic>>>(
@@ -439,12 +670,17 @@ class _AdministrativeDocumentsScreenState
             builder: (context, snapshot) => Wrap(
               spacing: 8,
               children: [
-                ChoiceChip(label: const Text('All folders'), selected: _folderId == null, onSelected: (_) => _selectFolder(null)),
+                ChoiceChip(
+                    label: const Text('All folders'),
+                    selected: _folderId == null,
+                    onSelected: (_) => _selectFolder(null)),
                 ...?snapshot.data?.map((folder) => ChoiceChip(
-                  label: Text('${folder['name']} (${folder['document_count'] ?? 0})'),
-                  selected: _folderId == folder['id']?.toString(),
-                  onSelected: (_) => _selectFolder(folder['id']?.toString()),
-                )),
+                      label: Text(
+                          '${folder['name']} (${folder['document_count'] ?? 0})'),
+                      selected: _folderId == folder['id']?.toString(),
+                      onSelected: (_) =>
+                          _selectFolder(folder['id']?.toString()),
+                    )),
               ],
             ),
           ),
@@ -452,31 +688,50 @@ class _AdministrativeDocumentsScreenState
           FutureBuilder<List<Map<String, dynamic>>>(
             future: _documents,
             builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
-              if (snapshot.hasError) return _LoadError(onRetry: () => setState(_reload));
+              if (snapshot.connectionState != ConnectionState.done)
+                return const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Center(child: CircularProgressIndicator()));
+              if (snapshot.hasError)
+                return _LoadError(onRetry: () => setState(_reload));
               final documents = snapshot.data ?? const <Map<String, dynamic>>[];
-              if (documents.isEmpty) return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(color: AppColors.primary.withOpacity(.08), borderRadius: BorderRadius.circular(8)),
-                    child: const Icon(Icons.folder_open_outlined, color: AppColors.primary),
-                  ),
-                  const SizedBox(height: 12),
-                  Text('No documents in this view.', style: Theme.of(context).textTheme.titleSmall),
-                  const SizedBox(height: 4),
-                  Text('Uploaded files for this client will appear here.', textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall),
-                ]),
-              );
-              return Column(children: documents.asMap().entries.map((entry) =>
-                _LiveDocumentTile(document: entry.value, canAssign: widget.canManageDocuments, clientId: widget.clientId!)
-                    .animate(delay: (entry.key * 35).ms)
-                    .fadeIn(duration: 220.ms)
-                    .slideY(begin: .025, end: 0),
-              ).toList());
+              if (documents.isEmpty)
+                return Padding(
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(.08),
+                          borderRadius: BorderRadius.circular(8)),
+                      child: const Icon(Icons.folder_open_outlined,
+                          color: AppColors.primary),
+                    ),
+                    const SizedBox(height: 12),
+                    Text('No documents in this view.',
+                        style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 4),
+                    Text('Uploaded files for this client will appear here.',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodySmall),
+                  ]),
+                );
+              return Column(
+                  children: documents
+                      .asMap()
+                      .entries
+                      .map(
+                        (entry) => _LiveDocumentTile(
+                                document: entry.value,
+                                canAssign: widget.canManageDocuments,
+                                clientId: widget.clientId!)
+                            .animate(delay: (entry.key * 35).ms)
+                            .fadeIn(duration: 220.ms)
+                            .slideY(begin: .025, end: 0),
+                      )
+                      .toList());
             },
           ),
         ],
@@ -485,33 +740,68 @@ class _AdministrativeDocumentsScreenState
   }
 
   void _selectFolder(String? folderId) => setState(() {
-    _folderId = folderId;
-    _documents = context.read<AdministrativeProvider>().loadDocuments(widget.clientId!, query: _query, folderId: _folderId);
-  });
+        _folderId = folderId;
+        _documents = context.read<AdministrativeProvider>().loadDocuments(
+            widget.clientId!,
+            query: _query,
+            folderId: _folderId);
+      });
 
   Future<void> _createFolder() async {
     final controller = TextEditingController();
-    final name = await showDialog<String>(context: context, builder: (dialog) => AlertDialog(title: const Text('Create Folder'), content: TextField(controller: controller, autofocus: true, decoration: const InputDecoration(labelText: 'Folder name')), actions: [TextButton(onPressed: () => Navigator.pop(dialog), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialog, controller.text.trim()), child: const Text('Create'))]));
+    final name = await showDialog<String>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+                title: const Text('Create Folder'),
+                content: TextField(
+                    controller: controller,
+                    autofocus: true,
+                    decoration:
+                        const InputDecoration(labelText: 'Folder name')),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(dialog),
+                      child: const Text('Cancel')),
+                  FilledButton(
+                      onPressed: () =>
+                          Navigator.pop(dialog, controller.text.trim()),
+                      child: const Text('Create'))
+                ]));
     controller.dispose();
     if (name == null || name.isEmpty || !mounted) return;
     try {
-      await context.read<AdministrativeProvider>().createFolder(widget.clientId!, name);
+      await context
+          .read<AdministrativeProvider>()
+          .createFolder(widget.clientId!, name);
       if (mounted) setState(_reload);
-    } catch (error) { if (mounted) _message(context, 'Unable to create folder: $error'); }
+    } catch (error) {
+      if (mounted) _message(context, 'Unable to create folder: $error');
+    }
   }
 
   Future<void> _uploadDocument() async {
     final file = await _pickAdministrativeFile(context);
     if (file?.bytes == null || !mounted) return;
     try {
-      await context.read<AdministrativeProvider>().uploadDocument(clientId: widget.clientId!, fileName: file!.name, bytes: file.bytes!, mimeType: _mimeTypeForFile(file.name), folderId: _folderId);
-      if (mounted) { setState(_reload); _message(context, '${file.name} uploaded'); }
-    } catch (error) { if (mounted) _message(context, 'Unable to upload document: $error'); }
+      await context.read<AdministrativeProvider>().uploadDocument(
+          clientId: widget.clientId!,
+          fileName: file!.name,
+          bytes: file.bytes!,
+          mimeType: _mimeTypeForFile(file.name),
+          folderId: _folderId);
+      if (mounted) {
+        setState(_reload);
+        _message(context, '${file.name} uploaded');
+      }
+    } catch (error) {
+      if (mounted) _message(context, 'Unable to upload document: $error');
+    }
   }
 }
 
 class AdministrativeAssignDocumentScreen extends StatefulWidget {
-  const AdministrativeAssignDocumentScreen({super.key, required this.documentName, this.documentId, this.clientId});
+  const AdministrativeAssignDocumentScreen(
+      {super.key, required this.documentName, this.documentId, this.clientId});
 
   final String documentName;
   final String? documentId;
@@ -531,7 +821,10 @@ class _AdministrativeAssignDocumentScreenState
   late Future<List<Map<String, dynamic>>> _staff;
 
   @override
-  void initState() { super.initState(); _staff = context.read<AdministrativeProvider>().loadStaffing(); }
+  void initState() {
+    super.initState();
+    _staff = context.read<AdministrativeProvider>().loadStaffing();
+  }
 
   @override
   void dispose() {
@@ -553,62 +846,116 @@ class _AdministrativeAssignDocumentScreenState
           if (snapshot.hasError) {
             return _LoadError(
               onRetry: () => setState(
-                () => _staff = context.read<AdministrativeProvider>().loadStaffing(),
+                () => _staff =
+                    context.read<AdministrativeProvider>().loadStaffing(),
               ),
             );
           }
-          final eligibleWorkers = (snapshot.data ?? const <Map<String, dynamic>>[])
-              .where((worker) =>
-                  worker['is_active'] != false &&
-                  ((worker['assigned_client_ids'] as List?) ?? const [])
-                      .any((id) => id?.toString() == widget.clientId))
-              .toList();
+          final eligibleWorkers =
+              (snapshot.data ?? const <Map<String, dynamic>>[])
+                  .where((worker) =>
+                      worker['is_active'] != false &&
+                      ((worker['assigned_client_ids'] as List?) ?? const [])
+                          .any((id) => id?.toString() == widget.clientId))
+                  .toList();
           return Padding(
             padding: const EdgeInsets.all(16),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const CircleAvatar(child: Icon(Icons.picture_as_pdf_outlined)),
-            title: Text(widget.documentName),
-            subtitle: const Text('Document selected for assignment'),
-          ),
-          const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            value: _workerId,
-            decoration: const InputDecoration(labelText: 'Assign to Worker', border: OutlineInputBorder()),
-            items: eligibleWorkers
-                .map((worker) => DropdownMenuItem(value: worker['id']?.toString(), child: Text(worker['full_name']?.toString() ?? 'Worker')))
-                .toList(),
-            onChanged: (value) => setState(() => _workerId = value),
-          ),
-          if (eligibleWorkers.isEmpty)
-            const Padding(
-              padding: EdgeInsets.only(top: 8),
-              child: Text('Assign an active worker to this client before assigning its document.'),
-            ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(value: _priority, decoration: const InputDecoration(labelText: 'Priority', border: OutlineInputBorder()), items: const [DropdownMenuItem(value: 'low', child: Text('Low')), DropdownMenuItem(value: 'normal', child: Text('Normal')), DropdownMenuItem(value: 'high', child: Text('High')), DropdownMenuItem(value: 'urgent', child: Text('Urgent'))], onChanged: (value) => setState(() => _priority = value ?? 'normal')),
-          ListTile(title: const Text('Due date'), subtitle: Text(MaterialLocalizations.of(context).formatMediumDate(_dueAt)), trailing: const Icon(Icons.event_outlined), onTap: () async { final date = await showDatePicker(context: context, initialDate: _dueAt, firstDate: DateTime.now(), lastDate: DateTime(2100)); if (date != null) setState(() => _dueAt = date); }),
-          TextField(
-            controller: _noteController,
-            maxLines: 4,
-            decoration: const InputDecoration(
-              labelText: 'Notes',
-              hintText: 'Please review and update the uploaded document.',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const Spacer(),
-          FilledButton(
-            onPressed: _workerId == null || widget.documentId == null ? null : () async {
-              try {
-                await context.read<AdministrativeProvider>().assignDocumentToWorker(documentId: widget.documentId!, workerId: _workerId!, title: 'Review ${widget.documentName}', remark: _noteController.text, priority: _priority, dueAt: _dueAt);
-                if (mounted) { _message(context, '${widget.documentName} assigned'); Navigator.of(context).pop(); }
-              } catch (error) { if (mounted) _message(context, 'Unable to assign document: $error'); }
-            },
-            child: const Text('Assign Document'),
-          ),
-            ]),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const CircleAvatar(
+                        child: Icon(Icons.picture_as_pdf_outlined)),
+                    title: Text(widget.documentName),
+                    subtitle: const Text('Document selected for assignment'),
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    value: _workerId,
+                    decoration: const InputDecoration(
+                        labelText: 'Assign to Worker',
+                        border: OutlineInputBorder()),
+                    items: eligibleWorkers
+                        .map((worker) => DropdownMenuItem(
+                            value: worker['id']?.toString(),
+                            child: Text(
+                                worker['full_name']?.toString() ?? 'Worker')))
+                        .toList(),
+                    onChanged: (value) => setState(() => _workerId = value),
+                  ),
+                  if (eligibleWorkers.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 8),
+                      child: Text(
+                          'Assign an active worker to this client before assigning its document.'),
+                    ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                      value: _priority,
+                      decoration: const InputDecoration(
+                          labelText: 'Priority', border: OutlineInputBorder()),
+                      items: const [
+                        DropdownMenuItem(value: 'low', child: Text('Low')),
+                        DropdownMenuItem(
+                            value: 'normal', child: Text('Normal')),
+                        DropdownMenuItem(value: 'high', child: Text('High')),
+                        DropdownMenuItem(value: 'urgent', child: Text('Urgent'))
+                      ],
+                      onChanged: (value) =>
+                          setState(() => _priority = value ?? 'normal')),
+                  ListTile(
+                      title: const Text('Due date'),
+                      subtitle: Text(MaterialLocalizations.of(context)
+                          .formatMediumDate(_dueAt)),
+                      trailing: const Icon(Icons.event_outlined),
+                      onTap: () async {
+                        final date = await showDatePicker(
+                            context: context,
+                            initialDate: _dueAt,
+                            firstDate: DateTime.now(),
+                            lastDate: DateTime(2100));
+                        if (date != null) setState(() => _dueAt = date);
+                      }),
+                  TextField(
+                    controller: _noteController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      labelText: 'Notes',
+                      hintText:
+                          'Please review and update the uploaded document.',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const Spacer(),
+                  FilledButton(
+                    onPressed: _workerId == null || widget.documentId == null
+                        ? null
+                        : () async {
+                            try {
+                              await context
+                                  .read<AdministrativeProvider>()
+                                  .assignDocumentToWorker(
+                                      documentId: widget.documentId!,
+                                      workerId: _workerId!,
+                                      title: 'Review ${widget.documentName}',
+                                      remark: _noteController.text,
+                                      priority: _priority,
+                                      dueAt: _dueAt);
+                              if (mounted) {
+                                _message(
+                                    context, '${widget.documentName} assigned');
+                                Navigator.of(context).pop();
+                              }
+                            } catch (error) {
+                              if (mounted)
+                                _message(context,
+                                    'Unable to assign document: $error');
+                            }
+                          },
+                    child: const Text('Assign Document'),
+                  ),
+                ]),
           );
         },
       ),
@@ -677,16 +1024,19 @@ class AdministrativeWorkerDashboardScreen extends StatelessWidget {
                 Card(
                   color: Theme.of(context).cardColor,
                   child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     leading: CircleAvatar(
                       radius: 25,
                       backgroundColor: AppColors.primary.withOpacity(.12),
                       foregroundColor: AppColors.primary,
                       child: Text(user?.initials ?? 'U'),
                     ),
-                    title: Text(user?.fullName ?? 'Worker', maxLines: 1, overflow: TextOverflow.ellipsis),
+                    title: Text(user?.fullName ?? 'Worker',
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
                     subtitle: Text(user?.jobTitle ?? user?.role ?? 'Worker'),
-                    trailing: const Icon(Icons.verified_user_outlined, color: AppColors.primary),
+                    trailing: const Icon(Icons.verified_user_outlined,
+                        color: AppColors.primary),
                   ),
                 ),
                 const SizedBox(height: 22),
@@ -698,14 +1048,18 @@ class AdministrativeWorkerDashboardScreen extends StatelessWidget {
                     child: LinearProgressIndicator(minHeight: 2),
                   ),
                 if (tasks.isEmpty && !provider.isLoading)
-                  const _WorkerEmpty(icon: Icons.task_alt_outlined, label: 'No tasks are assigned to you.'),
+                  const _WorkerEmpty(
+                      icon: Icons.task_alt_outlined,
+                      label: 'No tasks are assigned to you.'),
                 ...tasks.map((task) => Card(
                       color: Theme.of(context).cardColor,
                       margin: const EdgeInsets.only(bottom: 8),
                       child: ListTile(
                         onTap: task.isOpen
-                            ? () => Navigator.of(context).push(MaterialPageRoute(
-                                  builder: (_) => AdministrativeTaskCompletionScreen(
+                            ? () =>
+                                Navigator.of(context).push(MaterialPageRoute(
+                                  builder: (_) =>
+                                      AdministrativeTaskCompletionScreen(
                                     taskId: task.id,
                                     taskName: task.title,
                                   ),
@@ -716,8 +1070,12 @@ class AdministrativeWorkerDashboardScreen extends StatelessWidget {
                           foregroundColor: AppColors.primary,
                           child: const Icon(Icons.assignment_outlined),
                         ),
-                        title: Text(task.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                        subtitle: Text('${task.clientName} · ${_dueText(task.dueAt)}', maxLines: 1, overflow: TextOverflow.ellipsis),
+                        title: Text(task.title,
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                        subtitle: Text(
+                            '${task.clientName} · ${_dueText(task.dueAt)}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
                         trailing: _StatusPill(status: task.status),
                       ),
                     )),
@@ -725,7 +1083,9 @@ class AdministrativeWorkerDashboardScreen extends StatelessWidget {
                 _SectionTitle('My obligations (${obligations.length})'),
                 const SizedBox(height: 8),
                 if (obligations.isEmpty && !provider.isLoading)
-                  const _WorkerEmpty(icon: Icons.event_available_outlined, label: 'No active obligations.'),
+                  const _WorkerEmpty(
+                      icon: Icons.event_available_outlined,
+                      label: 'No active obligations.'),
                 ...obligations.map((obligation) => Card(
                       color: Theme.of(context).cardColor,
                       margin: const EdgeInsets.only(bottom: 8),
@@ -735,9 +1095,14 @@ class AdministrativeWorkerDashboardScreen extends StatelessWidget {
                           foregroundColor: AppColors.secondaryDark,
                           child: const Icon(Icons.event_note_outlined),
                         ),
-                        title: Text(obligation.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                        subtitle: Text(obligation.clientName, maxLines: 1, overflow: TextOverflow.ellipsis),
-                        trailing: Text(_dueText(obligation.dueAt), style: const TextStyle(color: AppColors.secondaryDark, fontWeight: FontWeight.w700)),
+                        title: Text(obligation.title,
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                        subtitle: Text(obligation.clientName,
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                        trailing: Text(_dueText(obligation.dueAt),
+                            style: const TextStyle(
+                                color: AppColors.secondaryDark,
+                                fontWeight: FontWeight.w700)),
                       ),
                     )),
               ],
@@ -762,10 +1127,13 @@ class _AdministrativeTaskCompletionScreenState
     final role = user?.role.trim().toLowerCase();
     final isManager = user?.isOwner == true ||
         const {'owner', 'admin', 'manager', 'sub_admin'}.contains(role);
-    context.read<AdministrativeProvider>().startTask(
-      widget.taskId,
-      workerId: isManager ? null : user?.id,
-    ).catchError(
+    context
+        .read<AdministrativeProvider>()
+        .startTask(
+          widget.taskId,
+          workerId: isManager ? null : user?.id,
+        )
+        .catchError(
       (Object error) {
         if (mounted) _message(context, 'Unable to start task: $error');
       },
@@ -774,14 +1142,14 @@ class _AdministrativeTaskCompletionScreenState
 
   @override
   Widget build(BuildContext context) {
-    final task = context.watch<AdministrativeProvider>().taskById(widget.taskId);
+    final task =
+        context.watch<AdministrativeProvider>().taskById(widget.taskId);
     final user = context.watch<AuthProvider>().currentUser;
     final role = user?.role.trim().toLowerCase();
     final isManager = user?.isOwner == true ||
         const {'owner', 'admin', 'manager', 'sub_admin'}.contains(role);
-    final canSubmitTask = !isManager &&
-        user?.id != null &&
-        task?.assignedWorkerId == user?.id;
+    final canSubmitTask =
+        !isManager && user?.id != null && task?.assignedWorkerId == user?.id;
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
@@ -790,7 +1158,8 @@ class _AdministrativeTaskCompletionScreenState
           IconButton(
             tooltip: 'Task comments',
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => AdministrativeTaskCommentsScreen(taskId: widget.taskId),
+              builder: (_) =>
+                  AdministrativeTaskCommentsScreen(taskId: widget.taskId),
             )),
             icon: const Icon(Icons.chat_bubble_outline),
           ),
@@ -801,7 +1170,8 @@ class _AdministrativeTaskCompletionScreenState
         children: [
           ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: const CircleAvatar(child: Icon(Icons.picture_as_pdf_outlined)),
+            leading:
+                const CircleAvatar(child: Icon(Icons.picture_as_pdf_outlined)),
             title: Text(widget.taskName),
             subtitle: Text(task?.note ?? 'Task instructions'),
           ),
@@ -819,7 +1189,9 @@ class _AdministrativeTaskCompletionScreenState
               child: const Row(children: [
                 Icon(Icons.info_outline, color: AppColors.primary, size: 19),
                 SizedBox(width: 8),
-                Expanded(child: Text('Only the assigned worker can submit this task.')),
+                Expanded(
+                    child:
+                        Text('Only the assigned worker can submit this task.')),
               ]),
             ),
           Text(task?.documentId == null
@@ -837,12 +1209,17 @@ class _AdministrativeTaskCompletionScreenState
                             .downloadDocument(task!.documentId!);
                         await _openAdministrativeFile(
                           file['file_url']?.toString() ?? '',
-                          file['file_name']?.toString() ?? task!.documentName ?? 'document',
+                          file['file_name']?.toString() ??
+                              task!.documentName ??
+                              'document',
                         );
                       } catch (error) {
-                        if (mounted) _message(context, 'Unable to download document: $error');
+                        if (mounted)
+                          _message(
+                              context, 'Unable to download document: $error');
                       } finally {
-                        if (mounted) setState(() => _isDownloadingOriginal = false);
+                        if (mounted)
+                          setState(() => _isDownloadingOriginal = false);
                       }
                     },
               icon: _isDownloadingOriginal
@@ -925,37 +1302,88 @@ class _AdministrativeTaskCommentsScreenState
   late Future<List<Map<String, dynamic>>> _comments;
 
   @override
-  void initState() { super.initState(); _comments = _load(); }
+  void initState() {
+    super.initState();
+    _comments = _load();
+  }
 
   Future<List<Map<String, dynamic>>> _load() =>
       context.read<AdministrativeProvider>().loadTaskComments(widget.taskId);
 
   @override
-  void dispose() { _controller.dispose(); super.dispose(); }
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Task Comments')),
-    body: Column(children: [
-      Expanded(child: FutureBuilder<List<Map<String, dynamic>>>(future: _comments, builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-        if (snapshot.hasError) return _LoadError(onRetry: () => setState(() { _comments = _load(); }));
-        final comments = snapshot.data ?? const <Map<String, dynamic>>[];
-        if (comments.isEmpty) return const Center(child: Text('No comments yet.'));
-        return ListView.separated(padding: const EdgeInsets.all(16), itemCount: comments.length, separatorBuilder: (_, __) => const Divider(), itemBuilder: (context, index) { final item = comments[index]; return ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.comment_outlined), title: Text(item['body']?.toString() ?? ''), subtitle: Text(item['author_name']?.toString() ?? 'User')); });
-      })),
-      SafeArea(child: Padding(padding: const EdgeInsets.all(12), child: Row(children: [Expanded(child: TextField(controller: _controller, textCapitalization: TextCapitalization.sentences, decoration: const InputDecoration(hintText: 'Add a comment', border: OutlineInputBorder()))), const SizedBox(width: 8), IconButton(tooltip: 'Send comment', icon: const Icon(Icons.send), onPressed: _send)]))),
-    ]),
-  );
+        appBar: AppBar(title: const Text('Task Comments')),
+        body: Column(children: [
+          Expanded(
+              child: FutureBuilder<List<Map<String, dynamic>>>(
+                  future: _comments,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState != ConnectionState.done)
+                      return const Center(child: CircularProgressIndicator());
+                    if (snapshot.hasError)
+                      return _LoadError(
+                          onRetry: () => setState(() {
+                                _comments = _load();
+                              }));
+                    final comments =
+                        snapshot.data ?? const <Map<String, dynamic>>[];
+                    if (comments.isEmpty)
+                      return const Center(child: Text('No comments yet.'));
+                    return ListView.separated(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: comments.length,
+                        separatorBuilder: (_, __) => const Divider(),
+                        itemBuilder: (context, index) {
+                          final item = comments[index];
+                          return ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.comment_outlined),
+                              title: Text(item['body']?.toString() ?? ''),
+                              subtitle: Text(
+                                  item['author_name']?.toString() ?? 'User'));
+                        });
+                  })),
+          SafeArea(
+              child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(children: [
+                    Expanded(
+                        child: TextField(
+                            controller: _controller,
+                            textCapitalization: TextCapitalization.sentences,
+                            decoration: const InputDecoration(
+                                hintText: 'Add a comment',
+                                border: OutlineInputBorder()))),
+                    const SizedBox(width: 8),
+                    IconButton(
+                        tooltip: 'Send comment',
+                        icon: const Icon(Icons.send),
+                        onPressed: _send)
+                  ]))),
+        ]),
+      );
 
   Future<void> _send() async {
     final body = _controller.text.trim();
     if (body.isEmpty) return;
     try {
-      await context.read<AdministrativeProvider>().addTaskComment(widget.taskId, body);
+      await context
+          .read<AdministrativeProvider>()
+          .addTaskComment(widget.taskId, body);
       _controller.clear();
-      if (mounted) setState(() { _comments = _load(); });
-    } catch (error) { if (mounted) _message(context, 'Unable to add comment: $error'); }
+      if (mounted)
+        setState(() {
+          _comments = _load();
+        });
+    } catch (error) {
+      if (mounted) _message(context, 'Unable to add comment: $error');
+    }
   }
 }
 
@@ -992,7 +1420,8 @@ class _AdministrativeDocumentReviewScreenState
 
   @override
   Widget build(BuildContext context) {
-    final task = context.watch<AdministrativeProvider>().taskById(widget.taskId);
+    final task =
+        context.watch<AdministrativeProvider>().taskById(widget.taskId);
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(title: const Text('Admin Document Review')),
@@ -1001,9 +1430,11 @@ class _AdministrativeDocumentReviewScreenState
         children: [
           ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: const CircleAvatar(child: Icon(Icons.picture_as_pdf_outlined)),
+            leading:
+                const CircleAvatar(child: Icon(Icons.picture_as_pdf_outlined)),
             title: Text(task?.documentName ?? widget.documentName),
-            subtitle: Text('Submitted by ${task?.assignedTo ?? 'assigned worker'}'),
+            subtitle:
+                Text('Submitted by ${task?.assignedTo ?? 'assigned worker'}'),
           ),
           const Divider(),
           FutureBuilder<List<Map<String, dynamic>>>(
@@ -1016,7 +1447,8 @@ class _AdministrativeDocumentReviewScreenState
                 );
               }
               if (snapshot.hasError) {
-                return Text('Unable to load document versions: ${snapshot.error}');
+                return Text(
+                    'Unable to load document versions: ${snapshot.error}');
               }
               final versions = snapshot.data ?? const [];
               if (versions.isEmpty) {
@@ -1025,38 +1457,43 @@ class _AdministrativeDocumentReviewScreenState
                 );
               }
               return Column(
-                children: versions.map((version) => ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.insert_drive_file_outlined),
-                  title: Text(version['fileName']?.toString() ??
-                      version['file_name']?.toString() ?? 'Document version'),
-                  subtitle: Text('Version ${version['versionNumber'] ?? version['version_number'] ?? ''}'),
-                  trailing: IconButton(
-                    tooltip: 'Download version for review',
-                    icon: const Icon(Icons.download_outlined),
-                    onPressed: task?.documentId == null
-                        ? null
-                        : () async {
-                            try {
-                              final file = await context
-                                  .read<AdministrativeProvider>()
-                                  .downloadDocumentVersion(
-                                    task!.documentId!,
-                                    version['id'].toString(),
-                                  );
-                              await _openAdministrativeFile(
-                                file['file_url']?.toString() ?? '',
-                                file['file_name']?.toString() ?? 'document',
-                              );
-                            } catch (error) {
-                              if (mounted) {
-                                _message(context,
-                                    'Unable to download version: $error');
-                              }
-                            }
-                          },
-                  ),
-                )).toList(),
+                children: versions
+                    .map((version) => ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.insert_drive_file_outlined),
+                          title: Text(version['fileName']?.toString() ??
+                              version['file_name']?.toString() ??
+                              'Document version'),
+                          subtitle: Text(
+                              'Version ${version['versionNumber'] ?? version['version_number'] ?? ''}'),
+                          trailing: IconButton(
+                            tooltip: 'Download version for review',
+                            icon: const Icon(Icons.download_outlined),
+                            onPressed: task?.documentId == null
+                                ? null
+                                : () async {
+                                    try {
+                                      final file = await context
+                                          .read<AdministrativeProvider>()
+                                          .downloadDocumentVersion(
+                                            task!.documentId!,
+                                            version['id'].toString(),
+                                          );
+                                      await _openAdministrativeFile(
+                                        file['file_url']?.toString() ?? '',
+                                        file['file_name']?.toString() ??
+                                            'document',
+                                      );
+                                    } catch (error) {
+                                      if (mounted) {
+                                        _message(context,
+                                            'Unable to download version: $error');
+                                      }
+                                    }
+                                  },
+                          ),
+                        ))
+                    .toList(),
               );
             },
           ),
@@ -1090,7 +1527,8 @@ class _AdministrativeDocumentReviewScreenState
     final action = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
-      builder: (sheetContext) => SafeArea(child: Padding(
+      builder: (sheetContext) => SafeArea(
+          child: Padding(
         padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           ListTile(
@@ -1115,9 +1553,11 @@ class _AdministrativeDocumentReviewScreenState
             storageAction: action,
           );
       if (!mounted) return;
-      _message(context, action == 'replace_original'
-          ? 'Document approved and original replaced'
-          : 'Document approved as a new version');
+      _message(
+          context,
+          action == 'replace_original'
+              ? 'Document approved and original replaced'
+              : 'Document approved as a new version');
       Navigator.of(context).pop();
     } catch (error) {
       if (mounted) _message(context, 'Unable to approve document: $error');
@@ -1147,7 +1587,8 @@ class _AdministrativeDocumentReviewScreenState
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+            onPressed: () =>
+                Navigator.pop(dialogContext, controller.text.trim()),
             child: const Text('Return'),
           ),
         ],
@@ -1174,9 +1615,14 @@ class _AdministrativeDocumentReviewScreenState
 }
 
 class AdministrativeObligationsScreen extends StatefulWidget {
-  const AdministrativeObligationsScreen({super.key, this.clientName});
+  const AdministrativeObligationsScreen({
+    super.key,
+    this.clientName,
+    this.onObligationCreated,
+  });
 
   final String? clientName;
+  final Future<void> Function()? onObligationCreated;
 
   @override
   State<AdministrativeObligationsScreen> createState() =>
@@ -1206,12 +1652,15 @@ class _AdministrativeObligationsScreenState
       body: Consumer<AdministrativeProvider>(
         builder: (context, provider, _) {
           final obligations = provider.obligations.where((obligation) {
-            final matchesClient =
-                widget.clientName == null || obligation.clientName == widget.clientName;
+            final matchesClient = widget.clientName == null ||
+                obligation.clientName == widget.clientName;
             final remaining = obligation.dueAt.difference(DateTime.now());
-            if (_filter == 'Completed') return matchesClient && obligation.isCompleted;
+            if (_filter == 'Completed')
+              return matchesClient && obligation.isCompleted;
             if (_filter == 'Urgent') {
-              return matchesClient && !obligation.isCompleted && remaining.inDays <= 7;
+              return matchesClient &&
+                  !obligation.isCompleted &&
+                  remaining.inDays <= 7;
             }
             if (_filter == '24 hours') {
               return matchesClient &&
@@ -1253,11 +1702,13 @@ class _AdministrativeObligationsScreenState
                       try {
                         await provider.completeObligationLive(obligation.id);
                         if (context.mounted) {
-                          _message(context, '${obligation.title} marked complete');
+                          _message(
+                              context, '${obligation.title} marked complete');
                         }
                       } catch (error) {
                         if (context.mounted) {
-                          _message(context, 'Unable to complete obligation: $error');
+                          _message(
+                              context, 'Unable to complete obligation: $error');
                         }
                       }
                     },
@@ -1266,27 +1717,37 @@ class _AdministrativeObligationsScreenState
           );
         },
       ),
+      floatingActionButton: FloatingActionButton(
+        tooltip: 'Create recurring obligation',
+        onPressed: () async {
+          await _createObligation(context);
+          await widget.onObligationCreated?.call();
+        },
+        child: const Icon(Icons.add),
+      ),
     );
   }
 
-  void _createObligation(BuildContext context) {
+  Future<void> _createObligation(BuildContext context) async {
     String countdown = 'Fixed date';
     final taskController = TextEditingController();
     final durationController = TextEditingController(text: '30');
     final dateController = TextEditingController(text: '${DateTime.now().day}');
     String? selectedClientId = context
-      .read<AdministrativeProvider>()
-      .clients
-      .where((client) => client.name == widget.clientName)
-      .map((client) => client.id)
-      .firstOrNull;
-    showDialog<void>(
+        .read<AdministrativeProvider>()
+        .clients
+        .where((client) => client.name == widget.clientName)
+        .map((client) => client.id)
+        .firstOrNull;
+    await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: const Text('Create Obligation'),
           content: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(controller: taskController, decoration: const InputDecoration(labelText: 'Task name')),
+            TextField(
+                controller: taskController,
+                decoration: const InputDecoration(labelText: 'Task name')),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               value: selectedClientId,
@@ -1299,16 +1760,19 @@ class _AdministrativeObligationsScreenState
                         child: Text(client.name),
                       ))
                   .toList(),
-              onChanged: (value) => setDialogState(() => selectedClientId = value),
+              onChanged: (value) =>
+                  setDialogState(() => selectedClientId = value),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               value: countdown,
               decoration: const InputDecoration(labelText: 'Countdown type'),
               items: const ['Fixed date', 'Trailing']
-                  .map((type) => DropdownMenuItem(value: type, child: Text(type)))
+                  .map((type) =>
+                      DropdownMenuItem(value: type, child: Text(type)))
                   .toList(),
-              onChanged: (value) => setDialogState(() => countdown = value ?? countdown),
+              onChanged: (value) =>
+                  setDialogState(() => countdown = value ?? countdown),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -1321,12 +1785,15 @@ class _AdministrativeObligationsScreenState
               TextField(
                 controller: dateController,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Fixed day of month'),
+                decoration:
+                    const InputDecoration(labelText: 'Fixed day of month'),
               ),
             ],
           ]),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel')),
             FilledButton(
               onPressed: () async {
                 final title = taskController.text.trim();
@@ -1334,13 +1801,21 @@ class _AdministrativeObligationsScreenState
                 final fixedDay = countdown == 'Fixed date'
                     ? int.tryParse(dateController.text)
                     : null;
-                if (title.isEmpty || selectedClientId == null || duration == null || duration < 1) {
-                  _message(context, 'Enter a task, client, and valid interval.');
+                if (title.isEmpty ||
+                    selectedClientId == null ||
+                    duration == null ||
+                    duration < 1) {
+                  _message(
+                      context, 'Enter a task, client, and valid interval.');
                   return;
                 }
                 if (countdown == 'Fixed date' &&
-                    (fixedDay == null || fixedDay < 1 || fixedDay > 31 || duration < 28)) {
-                  _message(context, 'Fixed monthly obligations need a day from 1-31 and an interval of at least 28 days.');
+                    (fixedDay == null ||
+                        fixedDay < 1 ||
+                        fixedDay > 31 ||
+                        duration < 28)) {
+                  _message(context,
+                      'Fixed monthly obligations need a day from 1-31 and an interval of at least 28 days.');
                   return;
                 }
                 final now = DateTime.now();
@@ -1348,7 +1823,9 @@ class _AdministrativeObligationsScreenState
                     ? _nextFixedObligationDate(now, fixedDay!)
                     : now.add(Duration(days: duration));
                 try {
-                  await context.read<AdministrativeProvider>().createLiveObligation(
+                  await context
+                      .read<AdministrativeProvider>()
+                      .createLiveObligation(
                         title: title,
                         clientId: selectedClientId!,
                         countdownType: countdown == 'Fixed date'
@@ -1361,7 +1838,8 @@ class _AdministrativeObligationsScreenState
                   if (dialogContext.mounted) Navigator.pop(dialogContext);
                   if (context.mounted) _message(context, 'Obligation created');
                 } catch (error) {
-                  if (context.mounted) _message(context, 'Unable to create obligation: $error');
+                  if (context.mounted)
+                    _message(context, 'Unable to create obligation: $error');
                 }
               },
               child: const Text('Create'),
@@ -1407,13 +1885,15 @@ class _AdministrativeSecurityScreenState
   @override
   void initState() {
     super.initState();
-    _security = context.read<AdministrativeProvider>()
+    _security = context
+        .read<AdministrativeProvider>()
         .loadClientSecurity(widget.clientId);
   }
 
   void _reloadSecurity() {
     setState(() {
-      _security = context.read<AdministrativeProvider>()
+      _security = context
+          .read<AdministrativeProvider>()
           .loadClientSecurity(widget.clientId);
     });
   }
@@ -1434,13 +1914,16 @@ class _AdministrativeSecurityScreenState
             obscureText: true,
             maxLength: 6,
             decoration: const InputDecoration(labelText: '6-digit passcode'),
-            validator: (value) => RegExp(r'^\d{6}$').hasMatch(value?.trim() ?? '')
-                ? null
-                : 'Enter the 6-digit passcode',
+            validator: (value) =>
+                RegExp(r'^\d{6}$').hasMatch(value?.trim() ?? '')
+                    ? null
+                    : 'Enter the 6-digit passcode',
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel')),
           FilledButton(
             onPressed: () {
               if (formKey.currentState?.validate() != true) return;
@@ -1468,7 +1951,9 @@ class _AdministrativeSecurityScreenState
           title: const Text('New passcode'),
           content: SelectableText(passcode),
           actions: [
-            FilledButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Done')),
+            FilledButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Done')),
           ],
         ),
       );
@@ -1524,7 +2009,8 @@ class _AdministrativeSecurityScreenState
                 controller: username,
                 maxLength: 254,
                 keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(labelText: 'Username / email'),
+                decoration:
+                    const InputDecoration(labelText: 'Username / email'),
                 validator: (value) => value == null || value.trim().isEmpty
                     ? 'Enter the username or email'
                     : null,
@@ -1541,13 +2027,16 @@ class _AdministrativeSecurityScreenState
               TextFormField(
                 controller: notes,
                 maxLength: 1000,
-                decoration: const InputDecoration(labelText: 'Notes (optional)'),
+                decoration:
+                    const InputDecoration(labelText: 'Notes (optional)'),
               ),
             ]),
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel')),
           FilledButton(
             onPressed: () {
               if (formKey.currentState?.validate() != true) return;
@@ -1571,9 +2060,9 @@ class _AdministrativeSecurityScreenState
     setState(() => _savingCredential = true);
     try {
       await context.read<AdministrativeProvider>().saveClientCredentials(
-            widget.clientId,
-            [...existing, credential],
-          );
+        widget.clientId,
+        [...existing, credential],
+      );
       if (!mounted) return;
       setState(() {
         _revealedCredentials = [...existing, credential];
@@ -1621,20 +2110,25 @@ class _AdministrativeSecurityScreenState
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.password_outlined),
                   title: const Text('Access passcode'),
-                  subtitle: Text(hasPasscode ? 'A passcode is configured.' : 'No passcode configured.'),
+                  subtitle: Text(hasPasscode
+                      ? 'A passcode is configured.'
+                      : 'No passcode configured.'),
                 ),
                 if (canManageAccess)
                   FilledButton.tonalIcon(
                     onPressed: _rotatePasscode,
                     icon: const Icon(Icons.refresh),
-                    label: Text(hasPasscode ? 'Rotate Passcode' : 'Generate Passcode'),
+                    label: Text(
+                        hasPasscode ? 'Rotate Passcode' : 'Generate Passcode'),
                   ),
                 const SizedBox(height: 12),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.key_outlined),
                   title: const Text('Portal credentials'),
-                  subtitle: Text(hasCredentials ? 'Encrypted credentials are stored.' : 'No credentials stored.'),
+                  subtitle: Text(hasCredentials
+                      ? 'Encrypted credentials are stored.'
+                      : 'No credentials stored.'),
                 ),
                 if (canManageAccess) ...[
                   OutlinedButton.icon(
@@ -1664,10 +2158,13 @@ class _AdministrativeSecurityScreenState
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(credential['portal']?.toString() ?? 'Portal', style: Theme.of(context).textTheme.titleMedium),
+                            Text(credential['portal']?.toString() ?? 'Portal',
+                                style: Theme.of(context).textTheme.titleMedium),
                             Text('Username: ${credential['username'] ?? ''}'),
-                            SelectableText('Password: ${credential['password'] ?? ''}'),
-                            if ((credential['notes']?.toString() ?? '').isNotEmpty)
+                            SelectableText(
+                                'Password: ${credential['password'] ?? ''}'),
+                            if ((credential['notes']?.toString() ?? '')
+                                .isNotEmpty)
                               Text('Notes: ${credential['notes']}'),
                           ],
                         ),
@@ -1676,7 +2173,8 @@ class _AdministrativeSecurityScreenState
                 if (!canManageAccess)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 12),
-                    child: Text('Only an administrator can manage or reveal portal credentials.'),
+                    child: Text(
+                        'Only an administrator can manage or reveal portal credentials.'),
                   ),
               ],
             );
@@ -1684,7 +2182,8 @@ class _AdministrativeSecurityScreenState
         ),
         const SizedBox(height: 18),
         const _SectionTitle('Security audit'),
-        const Text('Passcode rotations, credential updates, and reveal attempts are recorded in the Activity Log.'),
+        const Text(
+            'Passcode rotations, credential updates, and reveal attempts are recorded in the Activity Log.'),
       ]),
     );
   }
@@ -1712,17 +2211,32 @@ class _LiveDocumentTileState extends State<_LiveDocumentTile> {
     final name = widget.document['file_name']?.toString() ?? 'Document';
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(vertical: 5),
-      leading: CircleAvatar(child: Icon(_documentIcon(widget.document['mime_type']?.toString()))),
+      leading: CircleAvatar(
+          child: Icon(_documentIcon(widget.document['mime_type']?.toString()))),
       title: Text(name),
       subtitle: Text(widget.document['folder_name']?.toString() ?? 'Unfiled'),
       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-        if (_downloading) const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) else IconButton(tooltip: 'Download document', icon: const Icon(Icons.download_outlined), onPressed: _download),
+        if (_downloading)
+          const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2))
+        else
+          IconButton(
+              tooltip: 'Download document',
+              icon: const Icon(Icons.download_outlined),
+              onPressed: _download),
         PopupMenuButton<String>(
           onSelected: _action,
           itemBuilder: (context) => [
-            const PopupMenuItem(value: 'versions', child: Text('Version history')),
-            if (widget.canAssign) const PopupMenuItem(value: 'assign', child: Text('Assign to worker')),
-            if (widget.canAssign) const PopupMenuItem(value: 'version', child: Text('Upload approved version')),
+            const PopupMenuItem(
+                value: 'versions', child: Text('Version history')),
+            if (widget.canAssign)
+              const PopupMenuItem(
+                  value: 'assign', child: Text('Assign to worker')),
+            if (widget.canAssign)
+              const PopupMenuItem(
+                  value: 'version', child: Text('Upload approved version')),
           ],
         ),
       ]),
@@ -1732,62 +2246,106 @@ class _LiveDocumentTileState extends State<_LiveDocumentTile> {
   Future<void> _download() async {
     setState(() => _downloading = true);
     try {
-      final file = await context.read<AdministrativeProvider>().downloadDocument(widget.document['id'].toString());
+      final file = await context
+          .read<AdministrativeProvider>()
+          .downloadDocument(widget.document['id'].toString());
       await _openAdministrativeFile(
         file['file_url']?.toString() ?? '',
         file['file_name']?.toString() ?? 'document',
       );
-    } catch (error) { if (mounted) _message(context, 'Unable to download document: $error'); }
-    finally { if (mounted) setState(() => _downloading = false); }
+    } catch (error) {
+      if (mounted) _message(context, 'Unable to download document: $error');
+    } finally {
+      if (mounted) setState(() => _downloading = false);
+    }
   }
 
   Future<void> _action(String action) async {
     if (action == 'assign') {
-      await Navigator.of(context).push(MaterialPageRoute(builder: (_) => AdministrativeAssignDocumentScreen(documentName: widget.document['file_name']?.toString() ?? 'Document', documentId: widget.document['id']?.toString(), clientId: widget.clientId)));
+      await Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => AdministrativeAssignDocumentScreen(
+              documentName:
+                  widget.document['file_name']?.toString() ?? 'Document',
+              documentId: widget.document['id']?.toString(),
+              clientId: widget.clientId)));
       return;
     }
     if (action == 'versions') {
-      final versions = await context.read<AdministrativeProvider>().loadDocumentVersions(widget.document['id'].toString());
+      final versions = await context
+          .read<AdministrativeProvider>()
+          .loadDocumentVersions(widget.document['id'].toString());
       if (!mounted) return;
-      showModalBottomSheet<void>(context: context, builder: (sheet) => ListView(children: [const ListTile(title: Text('Version History')), ...versions.map((version) => ListTile(
-        title: Text(version['file_name']?.toString() ?? 'Version'),
-        subtitle: Text('Version ${version['version_number']}'),
-        trailing: IconButton(
-          tooltip: 'Download version',
-          icon: const Icon(Icons.download_outlined),
-          onPressed: () async {
-            try {
-              final file = await context.read<AdministrativeProvider>().downloadDocumentVersion(
-                widget.document['id'].toString(),
-                version['id'].toString(),
-              );
-              await _openAdministrativeFile(
-                file['file_url']?.toString() ?? '',
-                file['file_name']?.toString() ?? 'document',
-              );
-            } catch (error) {
-              if (context.mounted) _message(context, 'Unable to download version: $error');
-            }
-          },
-        ),
-      ))]));
+      showModalBottomSheet<void>(
+          context: context,
+          builder: (sheet) => ListView(children: [
+                const ListTile(title: Text('Version History')),
+                ...versions.map((version) => ListTile(
+                      title:
+                          Text(version['file_name']?.toString() ?? 'Version'),
+                      subtitle: Text('Version ${version['version_number']}'),
+                      trailing: IconButton(
+                        tooltip: 'Download version',
+                        icon: const Icon(Icons.download_outlined),
+                        onPressed: () async {
+                          try {
+                            final file = await context
+                                .read<AdministrativeProvider>()
+                                .downloadDocumentVersion(
+                                  widget.document['id'].toString(),
+                                  version['id'].toString(),
+                                );
+                            await _openAdministrativeFile(
+                              file['file_url']?.toString() ?? '',
+                              file['file_name']?.toString() ?? 'document',
+                            );
+                          } catch (error) {
+                            if (context.mounted)
+                              _message(context,
+                                  'Unable to download version: $error');
+                          }
+                        },
+                      ),
+                    ))
+              ]));
       return;
     }
     final file = await _pickAdministrativeFile(context);
     if (file?.bytes == null || !mounted) return;
-    final approval = await showModalBottomSheet<String>(context: context, builder: (sheet) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [ListTile(title: const Text('Replace current document'), onTap: () => Navigator.pop(sheet, 'replace')), ListTile(title: const Text('Store as version history'), onTap: () => Navigator.pop(sheet, 'new_version'))])));
+    final approval = await showModalBottomSheet<String>(
+        context: context,
+        builder: (sheet) => SafeArea(
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+              ListTile(
+                  title: const Text('Replace current document'),
+                  onTap: () => Navigator.pop(sheet, 'replace')),
+              ListTile(
+                  title: const Text('Store as version history'),
+                  onTap: () => Navigator.pop(sheet, 'new_version'))
+            ])));
     if (approval == null) return;
     try {
-      await context.read<AdministrativeProvider>().approveDocumentVersion(documentId: widget.document['id'].toString(), fileName: file!.name, bytes: file.bytes!, mimeType: _mimeTypeForFile(file.name), action: approval);
+      await context.read<AdministrativeProvider>().approveDocumentVersion(
+          documentId: widget.document['id'].toString(),
+          fileName: file!.name,
+          bytes: file.bytes!,
+          mimeType: _mimeTypeForFile(file.name),
+          action: approval);
       if (mounted) _message(context, 'Document version approved');
-    } catch (error) { if (mounted) _message(context, 'Unable to approve version: $error'); }
+    } catch (error) {
+      if (mounted) _message(context, 'Unable to approve version: $error');
+    }
   }
 }
 
 enum _ClientRecordType { tasks, expenses, revenue, activity }
 
 class _ClientRecordsTab extends StatefulWidget {
-  const _ClientRecordsTab({required this.clientId, required this.clientName, required this.canManage, required this.title, required this.type});
+  const _ClientRecordsTab(
+      {required this.clientId,
+      required this.clientName,
+      required this.canManage,
+      required this.title,
+      required this.type});
   final String? clientId;
   final String clientName;
   final bool canManage;
@@ -1812,73 +2370,110 @@ class _ClientRecordsTabState extends State<_ClientRecordsTab> {
     final provider = context.read<AdministrativeProvider>();
     return switch (widget.type) {
       _ClientRecordType.tasks => provider.loadTasksForClient(widget.clientId!),
-      _ClientRecordType.expenses => provider.loadFinancialEntries(type: 'expense', clientId: widget.clientId),
-      _ClientRecordType.revenue => provider.loadFinancialEntries(type: 'revenue', clientId: widget.clientId),
+      _ClientRecordType.expenses => provider.loadFinancialEntries(
+          type: 'expense', clientId: widget.clientId),
+      _ClientRecordType.revenue => provider.loadFinancialEntries(
+          type: 'revenue', clientId: widget.clientId),
       _ClientRecordType.activity => provider.loadActivity(),
     };
   }
 
   @override
   Widget build(BuildContext context) {
-    if (widget.clientId == null) return const Center(child: Text('This view requires a saved client record.'));
-    return FutureBuilder<List<Map<String, dynamic>>>(future: _records, builder: (context, snapshot) {
-      if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-      if (snapshot.hasError) {
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('Unable to load this client data.'),
-                const SizedBox(height: 8),
-                Text(
-                  snapshot.error.toString(),
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
+    if (widget.clientId == null)
+      return const Center(
+          child: Text('This view requires a saved client record.'));
+    return FutureBuilder<List<Map<String, dynamic>>>(
+        future: _records,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done)
+            return const Center(child: CircularProgressIndicator());
+          if (snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('Unable to load this client data.'),
+                    const SizedBox(height: 8),
+                    Text(
+                      snapshot.error.toString(),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    TextButton.icon(
+                      onPressed: () => setState(() {
+                        _records = _loadRecords();
+                      }),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ],
                 ),
-                TextButton.icon(
-                  onPressed: () => setState(() { _records = _loadRecords(); }),
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Retry'),
+              ),
+            );
+          }
+          var records = snapshot.data ?? const <Map<String, dynamic>>[];
+          if (widget.type == _ClientRecordType.activity)
+            records = records
+                .where(
+                    (item) => item['client_id']?.toString() == widget.clientId)
+                .toList();
+          return ListView(padding: const EdgeInsets.all(16), children: [
+            if (widget.canManage &&
+                (widget.type == _ClientRecordType.tasks ||
+                    widget.type == _ClientRecordType.expenses ||
+                    widget.type == _ClientRecordType.revenue))
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed: widget.type == _ClientRecordType.tasks
+                      ? _createTask
+                      : () => _createFinancialEntry(
+                          widget.type == _ClientRecordType.revenue
+                              ? 'revenue'
+                              : 'expense'),
+                  icon: Icon(widget.type == _ClientRecordType.tasks
+                      ? Icons.add_task
+                      : Icons.add),
+                  label: Text(widget.type == _ClientRecordType.tasks
+                      ? 'Create Task'
+                      : 'Record ${widget.type == _ClientRecordType.revenue ? 'Revenue' : 'Expense'}'),
                 ),
-              ],
-            ),
-          ),
-        );
-      }
-      var records = snapshot.data ?? const <Map<String, dynamic>>[];
-      if (widget.type == _ClientRecordType.activity) records = records.where((item) => item['client_id']?.toString() == widget.clientId).toList();
-      return ListView(padding: const EdgeInsets.all(16), children: [
-        if (widget.canManage && (widget.type == _ClientRecordType.tasks || widget.type == _ClientRecordType.expenses || widget.type == _ClientRecordType.revenue))
-          Align(
-            alignment: Alignment.centerLeft,
-            child: FilledButton.icon(
-              onPressed: widget.type == _ClientRecordType.tasks
-                  ? _createTask
-                  : () => _createFinancialEntry(widget.type == _ClientRecordType.revenue ? 'revenue' : 'expense'),
-              icon: Icon(widget.type == _ClientRecordType.tasks ? Icons.add_task : Icons.add),
-              label: Text(widget.type == _ClientRecordType.tasks ? 'Create Task' : 'Record ${widget.type == _ClientRecordType.revenue ? 'Revenue' : 'Expense'}'),
-            ),
-          ),
-        if (widget.canManage && widget.type == _ClientRecordType.activity)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: OutlinedButton.icon(
-              onPressed: _createTask,
-              icon: const Icon(Icons.add_task),
-              label: const Text('Create Task'),
-            ),
-          ),
-        if (records.isEmpty)
-          Padding(padding: const EdgeInsets.symmetric(vertical: 24), child: Center(child: Text('No ${widget.title.toLowerCase()} records yet.'))),
-        ...records.map((item) {
-          final recordTitle = widget.type == _ClientRecordType.tasks ? item['title'] : widget.type == _ClientRecordType.activity ? item['action']?.toString().replaceAll('_', ' ') : item['description'];
-          final subtitle = widget.type == _ClientRecordType.tasks ? '${item['priority'] ?? 'normal'} priority | ${item['status'] ?? 'assigned'}' : widget.type == _ClientRecordType.activity ? item['actor_name'] ?? 'System' : _currency(_asAmount(item['amount']));
-          return ListTile(title: Text(recordTitle?.toString() ?? widget.title), subtitle: Text(subtitle.toString()));
-        }),
-      ]);
-    });
+              ),
+            if (widget.canManage && widget.type == _ClientRecordType.activity)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: _createTask,
+                  icon: const Icon(Icons.add_task),
+                  label: const Text('Create Task'),
+                ),
+              ),
+            if (records.isEmpty)
+              Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: Center(
+                      child: Text(
+                          'No ${widget.title.toLowerCase()} records yet.'))),
+            ...records.map((item) {
+              final recordTitle = widget.type == _ClientRecordType.tasks
+                  ? item['title']
+                  : widget.type == _ClientRecordType.activity
+                      ? item['action']?.toString().replaceAll('_', ' ')
+                      : item['description'];
+              final subtitle = widget.type == _ClientRecordType.tasks
+                  ? '${item['priority'] ?? 'normal'} priority | ${item['status'] ?? 'assigned'}'
+                  : widget.type == _ClientRecordType.activity
+                      ? item['actor_name'] ?? 'System'
+                      : _currency(_asAmount(item['amount']));
+              return ListTile(
+                  title: Text(recordTitle?.toString() ?? widget.title),
+                  subtitle: Text(subtitle.toString()));
+            }),
+          ]);
+        });
   }
 
   Future<void> _createTask() async {
@@ -1889,33 +2484,47 @@ class _ClientRecordsTabState extends State<_ClientRecordsTab> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Create Task'),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: title, autofocus: true, decoration: const InputDecoration(labelText: 'Task title *')),
+          TextField(
+              controller: title,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Task title *')),
           const SizedBox(height: 12),
-          TextField(controller: remark, maxLines: 3, decoration: const InputDecoration(labelText: 'Instructions (optional)')),
+          TextField(
+              controller: remark,
+              maxLines: 3,
+              decoration:
+                  const InputDecoration(labelText: 'Instructions (optional)')),
         ]),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-          FilledButton(onPressed: () async {
-            if (title.text.trim().isEmpty) return;
-            try {
-              await context.read<AdministrativeProvider>().createLiveTask(
-                title: title.text,
-                clientId: widget.clientId,
-                remark: remark.text,
-                dueAt: DateTime.now().add(const Duration(days: 1)),
-              );
-              if (dialogContext.mounted) Navigator.pop(dialogContext, true);
-            } catch (error) {
-              if (dialogContext.mounted) _message(dialogContext, 'Unable to create task: $error');
-            }
-          }, child: const Text('Create')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () async {
+                if (title.text.trim().isEmpty) return;
+                try {
+                  await context.read<AdministrativeProvider>().createLiveTask(
+                        title: title.text,
+                        clientId: widget.clientId,
+                        remark: remark.text,
+                        dueAt: DateTime.now().add(const Duration(days: 1)),
+                      );
+                  if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+                } catch (error) {
+                  if (dialogContext.mounted)
+                    _message(dialogContext, 'Unable to create task: $error');
+                }
+              },
+              child: const Text('Create')),
         ],
       ),
     );
     title.dispose();
     remark.dispose();
     if (saved == true && mounted) {
-      setState(() { _records = _loadRecords(); });
+      setState(() {
+        _records = _loadRecords();
+      });
       _message(context, 'Task created for ${widget.clientName}');
     }
   }
@@ -1924,48 +2533,123 @@ class _ClientRecordsTabState extends State<_ClientRecordsTab> {
     final amount = TextEditingController();
     final description = TextEditingController();
     final formKey = GlobalKey<FormState>();
+    String paymentMethod = 'cash';
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) => Padding(
-        padding: EdgeInsets.fromLTRB(16, 20, 16, MediaQuery.viewInsetsOf(sheetContext).bottom + 24),
-        child: Form(key: formKey, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text('Record ${entryType == 'revenue' ? 'Revenue' : 'Expense'}', style: Theme.of(sheetContext).textTheme.titleLarge),
-          const SizedBox(height: 12),
-          TextFormField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Amount', prefixText: 'NGN '), validator: (value) { final parsed = double.tryParse(value?.trim() ?? ''); return parsed == null || parsed <= 0 ? 'Enter an amount above zero' : null; }),
-          const SizedBox(height: 12),
-          TextFormField(controller: description, decoration: const InputDecoration(labelText: 'Description'), validator: (value) => value == null || value.trim().isEmpty ? 'Enter a description' : null),
-          const SizedBox(height: 16),
-          FilledButton.icon(onPressed: () async {
-            if (!formKey.currentState!.validate()) return;
-            try {
-              await context.read<AdministrativeProvider>().createFinancialEntry(
-                entryType: entryType,
-                amount: double.parse(amount.text.trim()),
-                description: description.text.trim(),
-                clientId: widget.clientId,
-              );
-              if (sheetContext.mounted) Navigator.pop(sheetContext, true);
-            } catch (error) {
-              if (sheetContext.mounted) _message(sheetContext, 'Unable to save entry: $error');
-            }
-          }, icon: const Icon(Icons.save_outlined), label: const Text('Save Entry')),
-        ])),
+        padding: EdgeInsets.fromLTRB(
+            16, 20, 16, MediaQuery.viewInsetsOf(sheetContext).bottom + 24),
+        child: Form(
+            key: formKey,
+            child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                      'Record ${entryType == 'revenue' ? 'Revenue' : 'Expense'}',
+                      style: Theme.of(sheetContext).textTheme.titleLarge),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: paymentMethod,
+                    decoration:
+                        const InputDecoration(labelText: 'Payment method'),
+                    items: const [
+                      DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                      DropdownMenuItem(
+                          value: 'transfer', child: Text('Transfer')),
+                      DropdownMenuItem(value: 'mixed', child: Text('Mixed')),
+                    ],
+                    onChanged: (value) =>
+                        paymentMethod = value ?? 'cash',
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                      controller: amount,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(
+                          labelText: 'Amount', prefixText: 'NGN '),
+                      validator: (value) {
+                        final parsed = double.tryParse(value?.trim() ?? '');
+                        return parsed == null || parsed <= 0
+                            ? 'Enter an amount above zero'
+                            : null;
+                      }),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                      controller: description,
+                      decoration:
+                          const InputDecoration(labelText: 'Description'),
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
+                              ? 'Enter a description'
+                              : null),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                      onPressed: () async {
+                        if (!formKey.currentState!.validate()) return;
+                        try {
+                          await context
+                              .read<AdministrativeProvider>()
+                              .createFinancialEntry(
+                                entryType: entryType,
+                                amount: double.parse(amount.text.trim()),
+                                description: description.text.trim(),
+                                paymentMethod: paymentMethod,
+                                clientId: widget.clientId,
+                              );
+                          if (sheetContext.mounted)
+                            Navigator.pop(sheetContext, true);
+                        } catch (error) {
+                          if (sheetContext.mounted)
+                            _message(
+                                sheetContext, 'Unable to save entry: $error');
+                        }
+                      },
+                      icon: const Icon(Icons.save_outlined),
+                      label: const Text('Save Entry')),
+                ])),
       ),
     );
+    final savedAmount = double.tryParse(amount.text.trim()) ?? 0;
+    final savedDescription = description.text.trim();
     amount.dispose();
     description.dispose();
     if (saved == true && mounted) {
-      setState(() { _records = _loadRecords(); });
-      _message(context, '${entryType == 'revenue' ? 'Revenue' : 'Expense'} recorded');
+      setState(() {
+        _records = _loadRecords();
+      });
+      _message(context,
+          '${entryType == 'revenue' ? 'Revenue' : 'Expense'} recorded');
+      if (entryType == 'revenue') {
+        await _showRevenueReceiptDialog(
+          context,
+          amount: savedAmount,
+          description: savedDescription,
+          paymentMethod: paymentMethod,
+          clientName: widget.clientName,
+        );
+      }
     }
   }
 }
 
-IconData _documentIcon(String? mimeType) => mimeType == 'application/pdf' ? Icons.picture_as_pdf_outlined : mimeType?.contains('spreadsheet') == true || mimeType == 'text/csv' ? Icons.table_chart_outlined : Icons.description_outlined;
+IconData _documentIcon(String? mimeType) => mimeType == 'application/pdf'
+    ? Icons.picture_as_pdf_outlined
+    : mimeType?.contains('spreadsheet') == true || mimeType == 'text/csv'
+        ? Icons.table_chart_outlined
+        : Icons.description_outlined;
 
 const _administrativeFileExtensions = [
-  'pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'csv', 'xlsx',
+  'pdf',
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'csv',
+  'xlsx',
 ];
 const _administrativeFileMaxBytes = 10 * 1024 * 1024;
 
@@ -2004,7 +2688,8 @@ String _mimeTypeForFile(String name) {
     'gif' => 'image/gif',
     'webp' => 'image/webp',
     'csv' => 'text/csv',
-    'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'xlsx' =>
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     _ => throw FormatException('This file type is not supported.'),
   };
 }
@@ -2104,17 +2789,26 @@ class _Obligation extends StatelessWidget {
     final status = obligation.isCompleted
         ? 'Completed'
         : remaining.isNegative
-            ? 'Overdue'
+            ? 'Overdue by ${remaining.inDays.abs().clamp(1, 9999)} days'
             : remaining < const Duration(days: 1)
                 ? '${remaining.inHours} hours left'
-            : '$remainingDays days left';
+                : '$remainingDays days remaining';
+    final dueDate =
+        MaterialLocalizations.of(context).formatMediumDate(obligation.dueAt);
     return ListTile(
-      leading: CircleAvatar(backgroundColor: color.withOpacity(.12), child: Icon(Icons.event_note_outlined, color: color, size: 18)),
+      leading: CircleAvatar(
+          backgroundColor: color.withOpacity(.12),
+          child: Icon(Icons.event_note_outlined, color: color, size: 18)),
       title: Text(obligation.title),
-      subtitle: Text('${obligation.clientName} | ${obligation.countdownType == AdministrativeCountdownType.fixedDate ? 'Fixed date' : 'Trailing'}'),
+      subtitle: Text(
+        '${obligation.clientName} · Due $dueDate · $status'
+        ' · ${obligation.countdownType == AdministrativeCountdownType.fixedDate ? 'Fixed date' : 'Recurring interval'}',
+      ),
       trailing: obligation.isCompleted
           ? Text(status, style: TextStyle(color: color, fontSize: 11))
-          : TextButton(onPressed: onComplete, child: Text('Complete', style: TextStyle(color: color))),
+          : TextButton(
+              onPressed: onComplete,
+              child: Text('Complete', style: TextStyle(color: color))),
     );
   }
 }
@@ -2142,8 +2836,12 @@ class _StatusPill extends StatelessWidget {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: values.$2.withOpacity(.12), borderRadius: BorderRadius.circular(8)),
-      child: Text(values.$1, style: TextStyle(color: values.$2, fontSize: 11, fontWeight: FontWeight.w700)),
+      decoration: BoxDecoration(
+          color: values.$2.withOpacity(.12),
+          borderRadius: BorderRadius.circular(8)),
+      child: Text(values.$1,
+          style: TextStyle(
+              color: values.$2, fontSize: 11, fontWeight: FontWeight.w700)),
     );
   }
 }
@@ -2176,7 +2874,9 @@ class _WorkerEmpty extends StatelessWidget {
           children: [
             Icon(icon, color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: 12),
-            Expanded(child: Text(label, style: Theme.of(context).textTheme.bodyMedium)),
+            Expanded(
+                child:
+                    Text(label, style: Theme.of(context).textTheme.bodyMedium)),
           ],
         ),
       );
@@ -2187,7 +2887,10 @@ class _InfoRow extends StatelessWidget {
   final String label;
   final String value;
   @override
-  Widget build(BuildContext context) => ListTile(contentPadding: EdgeInsets.zero, title: Text(label), trailing: Text(value));
+  Widget build(BuildContext context) => ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(label),
+      trailing: Text(value));
 }
 
 void _message(BuildContext context, String message) {
@@ -2382,12 +3085,12 @@ class _AdministrativeCreateClientScreenState
       final provider = context.read<AdministrativeProvider>();
       await provider.loadForBusiness(businessId);
       final client = await provider.createClient(
-            name: _name.text,
-            companyName: _company.text,
-            location: _location.text,
-            contactAddress: _address.text,
-            businessId: businessId,
-          );
+        name: _name.text,
+        companyName: _company.text,
+        location: _location.text,
+        contactAddress: _address.text,
+        businessId: businessId,
+      );
       if (!mounted) return;
       final configureAccess = await showDialog<bool>(
         context: context,
@@ -2493,7 +3196,8 @@ class _AdministrativeCreateClientScreenState
                 label: Text(_saving ? 'Creating...' : 'Create Client'),
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(50),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
                 ),
               ),
             ],
@@ -2551,8 +3255,8 @@ class _AdministrativeCalendarScreenState
       isScrollControlled: true,
       builder: (sheetContext) => StatefulBuilder(
         builder: (context, setSheetState) => Padding(
-          padding: EdgeInsets.fromLTRB(16, 20, 16,
-              MediaQuery.viewInsetsOf(context).bottom + 24),
+          padding: EdgeInsets.fromLTRB(
+              16, 20, 16, MediaQuery.viewInsetsOf(context).bottom + 24),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             TextField(
               controller: title,
@@ -2579,8 +3283,8 @@ class _AdministrativeCalendarScreenState
                   lastDate: DateTime(2100),
                 );
                 if (date != null) {
-                  setSheetState(() => startsAt = DateTime(
-                      date.year, date.month, date.day, startsAt.hour));
+                  setSheetState(() => startsAt =
+                      DateTime(date.year, date.month, date.day, startsAt.hour));
                 }
               },
             ),
@@ -2626,7 +3330,10 @@ class _AdministrativeCalendarScreenState
     );
     title.dispose();
     description.dispose();
-    if (saved == true && mounted) setState(() { _events = _load(); });
+    if (saved == true && mounted)
+      setState(() {
+        _events = _load();
+      });
   }
 
   @override
@@ -2649,19 +3356,25 @@ class _AdministrativeCalendarScreenState
               return const Center(child: CircularProgressIndicator());
             }
             if (snapshot.hasError) {
-              return _LoadError(onRetry: () => setState(() { _events = _load(); }));
+              return _LoadError(
+                  onRetry: () => setState(() {
+                        _events = _load();
+                      }));
             }
             final events = snapshot.data ?? const <Map<String, dynamic>>[];
             final selectedEvents = events.where((event) {
               final startsAt = DateTime.tryParse(
                 event['starts_at']?.toString() ?? '',
               );
-              return startsAt != null && DateUtils.isSameDay(startsAt, _selectedDate);
+              return startsAt != null &&
+                  DateUtils.isSameDay(startsAt, _selectedDate);
             }).toList();
             return RefreshIndicator(
               onRefresh: () async {
                 final eventsFuture = _load();
-                setState(() { _events = eventsFuture; });
+                setState(() {
+                  _events = eventsFuture;
+                });
                 await eventsFuture;
               },
               child: ListView(
@@ -2676,7 +3389,8 @@ class _AdministrativeCalendarScreenState
                         icon: const Icon(Icons.chevron_left),
                       ),
                       Text(
-                        MaterialLocalizations.of(context).formatMonthYear(_month),
+                        MaterialLocalizations.of(context)
+                            .formatMonthYear(_month),
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       IconButton(
@@ -2695,7 +3409,8 @@ class _AdministrativeCalendarScreenState
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    MaterialLocalizations.of(context).formatMediumDate(_selectedDate),
+                    MaterialLocalizations.of(context)
+                        .formatMediumDate(_selectedDate),
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 8),
@@ -2704,7 +3419,8 @@ class _AdministrativeCalendarScreenState
                       padding: EdgeInsets.symmetric(vertical: 20),
                       child: Text('No tasks or obligations due on this day.'),
                     ),
-                  ...selectedEvents.map((event) => _CalendarEventTile(event: event)),
+                  ...selectedEvents
+                      .map((event) => _CalendarEventTile(event: event)),
                 ],
               ),
             );
@@ -2733,7 +3449,8 @@ class _CalendarMonthGrid extends StatelessWidget {
     final cells = ((firstWeekday + daysInMonth + 6) ~/ 7) * 7;
     final eventDays = <int>{
       for (final event in events)
-        if (DateTime.tryParse(event['starts_at']?.toString() ?? '') case final date?)
+        if (DateTime.tryParse(event['starts_at']?.toString() ?? '')
+            case final date?)
           if (date.year == month.year && date.month == month.month) date.day,
     };
     const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -2743,7 +3460,8 @@ class _CalendarMonthGrid extends StatelessWidget {
           children: weekdays
               .map((day) => Expanded(
                     child: Center(
-                      child: Text(day, style: Theme.of(context).textTheme.labelSmall),
+                      child: Text(day,
+                          style: Theme.of(context).textTheme.labelSmall),
                     ),
                   ))
               .toList(),
@@ -2778,7 +3496,8 @@ class _CalendarMonthGrid extends StatelessWidget {
                     alignment: Alignment.center,
                     children: [
                       Text('$day',
-                          style: TextStyle(color: selected ? Colors.white : null)),
+                          style:
+                              TextStyle(color: selected ? Colors.white : null)),
                       if (hasEvents)
                         Positioned(
                           bottom: 3,
@@ -2786,7 +3505,8 @@ class _CalendarMonthGrid extends StatelessWidget {
                             width: 4,
                             height: 4,
                             decoration: BoxDecoration(
-                              color: selected ? Colors.white : AppColors.primary,
+                              color:
+                                  selected ? Colors.white : AppColors.primary,
                               shape: BoxShape.circle,
                             ),
                           ),
@@ -2843,96 +3563,240 @@ class _AdministrativeStaffingScreenState
   @override
   void initState() {
     super.initState();
-    _staff = context.read<AdministrativeProvider>().loadStaffing();
+    _staff = _loadStaff();
+  }
+
+  Future<List<Map<String, dynamic>>> _loadStaff() async {
+    final businessId =
+        context.read<BusinessProvider>().currentBusiness?.id ?? '';
+    if (businessId.isEmpty) return const [];
+    final provider = context.read<AdministrativeProvider>();
+    await provider.loadForBusiness(businessId);
+    return provider.loadStaffing();
   }
 
   @override
   Widget build(BuildContext context) {
-    final canManageWorkers = context.watch<AuthProvider>().currentUser?.isOwner == true;
+    final canManageWorkers =
+        context.watch<AuthProvider>().currentUser?.isOwner == true;
     return Scaffold(
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        appBar: AppBar(
-          title: const Text('Staffing'),
-          actions: canManageWorkers ? [
-            IconButton(
-              tooltip: 'Add worker',
-              icon: const Icon(Icons.person_add_alt_1),
-              onPressed: _addWorker,
-            ),
-          ] : const [],
-        ),
-        body: FutureBuilder<List<Map<String, dynamic>>>(
-          future: _staff,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-            if (snapshot.hasError) return _LoadError(onRetry: () => setState(() { _staff = context.read<AdministrativeProvider>().loadStaffing(); }));
-            final staff = snapshot.data ?? const [];
-            return ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: staff.isEmpty ? 1 : staff.length,
-              itemBuilder: (context, index) {
-                if (staff.isEmpty) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 48),
-                    child: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.groups_2_outlined, size: 40, color: AppColors.primary.withOpacity(.7)),
-                      const SizedBox(height: 10),
-                      Text('No staff records found.', style: Theme.of(context).textTheme.bodyMedium),
-                    ])),
-                  );
-                }
-                final worker = staff[index];
-                final name = worker['full_name']?.toString() ?? 'Unnamed worker';
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  color: Theme.of(context).cardColor,
-                  child: ListTile(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      appBar: AppBar(
+        title: const Text('Staffing'),
+        actions: canManageWorkers
+            ? [
+                IconButton(
+                  tooltip: 'Add worker',
+                  icon: const Icon(Icons.person_add_alt_1),
+                  onPressed: _addWorker,
+                ),
+              ]
+            : const [],
+      ),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _staff,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done)
+            return const Center(child: CircularProgressIndicator());
+          if (snapshot.hasError)
+            return _LoadError(
+                onRetry: () => setState(() {
+                      _staff = _loadStaff();
+                    }));
+          final staff = snapshot.data ?? const [];
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: staff.isEmpty ? 1 : staff.length,
+            itemBuilder: (context, index) {
+              if (staff.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 48),
+                  child: Center(
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.groups_2_outlined,
+                        size: 40, color: AppColors.primary.withOpacity(.7)),
+                    const SizedBox(height: 10),
+                    Text('No staff records found.',
+                        style: Theme.of(context).textTheme.bodyMedium),
+                  ])),
+                );
+              }
+              final worker = staff[index];
+              final name = worker['full_name']?.toString() ?? 'Unnamed worker';
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                color: Theme.of(context).cardColor,
+                child: ListTile(
                   onTap: () => _manageAssignments(worker),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  leading: CircleAvatar(backgroundColor: AppColors.primary.withOpacity(.1), foregroundColor: AppColors.primary, child: Text(name.substring(0, 1).toUpperCase())),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                  leading: CircleAvatar(
+                      backgroundColor: AppColors.primary.withOpacity(.1),
+                      foregroundColor: AppColors.primary,
+                      child: Text(name.substring(0, 1).toUpperCase())),
                   title: Text(name),
                   subtitle: Text(
                     '${worker['role'] ?? 'Staff'} | ${worker['assigned_client_count'] ?? 0} clients | ${worker['is_active'] == false ? 'Inactive' : 'Active'}',
                   ),
-                  trailing: canManageWorkers ? PopupMenuButton<String>(
-                    tooltip: 'Worker options',
-                    onSelected: (action) {
-                      if (action == 'edit') _editWorker(worker);
-                      if (action == 'clients') _manageAssignments(worker);
-                    },
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(value: 'edit', child: Text('Edit worker')),
-                      PopupMenuItem(value: 'clients', child: Text('Client access')),
-                    ],
-                  ) : Text('${worker['open_task_count'] ?? 0} open tasks'),
-                  ),
-                ).animate(delay: (index * 35).ms).fadeIn(duration: 220.ms).slideX(begin: .02, end: 0);
-              },
-            );
-          },
-        ),
-        floatingActionButton: canManageWorkers ? FloatingActionButton(
-          tooltip: 'Add worker',
-          onPressed: _addWorker,
-          child: const Icon(Icons.person_add_alt_1),
-        ) : null,
-      );
+                  trailing: canManageWorkers
+                      ? PopupMenuButton<String>(
+                          tooltip: 'Worker options',
+                          onSelected: (action) {
+                            if (action == 'edit') _editWorker(worker);
+                            if (action == 'clients') _manageAssignments(worker);
+                          },
+                          itemBuilder: (context) => const [
+                            PopupMenuItem(
+                                value: 'edit', child: Text('Edit worker')),
+                            PopupMenuItem(
+                                value: 'clients', child: Text('Client access')),
+                          ],
+                        )
+                      : Text('${worker['open_task_count'] ?? 0} open tasks'),
+                ),
+              )
+                  .animate(delay: (index * 35).ms)
+                  .fadeIn(duration: 220.ms)
+                  .slideX(begin: .02, end: 0);
+            },
+          );
+        },
+      ),
+      floatingActionButton: canManageWorkers
+          ? FloatingActionButton(
+              tooltip: 'Add worker',
+              onPressed: _addWorker,
+              child: const Icon(Icons.person_add_alt_1),
+            )
+          : null,
+    );
   }
 
   Future<void> _addWorker() async {
-    final created = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const AddWorkerScreen(returnToCaller: true)),
-    );
-    if (created == true && mounted) {
-      setState(() { _staff = context.read<AdministrativeProvider>().loadStaffing(); });
+    final name = TextEditingController();
+    final email = TextEditingController();
+    final phone = TextEditingController();
+    final password = TextEditingController();
+    final roles = WorkerPermissions.getAvailableRoles('administrative');
+    var role = roles.contains('staff') ? 'staff' : roles.first;
+    var saving = false;
+    try {
+      final created = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('Add staff member'),
+            content: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                TextField(
+                  controller: name,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(labelText: 'Full name'),
+                ),
+                TextField(
+                  controller: email,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(labelText: 'Login email'),
+                ),
+                TextField(
+                  controller: phone,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(labelText: 'Phone (optional)'),
+                ),
+                TextField(
+                  controller: password,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                      labelText: 'Temporary password (8+ characters)'),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: role,
+                  decoration: const InputDecoration(labelText: 'Role'),
+                  items: roles
+                      .map((value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(
+                                WorkerPermissions.getRoleDisplayName(value)),
+                          ))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) setDialogState(() => role = value);
+                  },
+                ),
+              ]),
+            ),
+            actions: [
+              TextButton(
+                onPressed:
+                    saving ? null : () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: saving
+                    ? null
+                    : () async {
+                        final workerName = name.text.trim();
+                        final workerEmail = email.text.trim();
+                        final workerPassword = password.text;
+                        if (workerName.isEmpty ||
+                            !workerEmail.contains('@') ||
+                            workerPassword.length < 8) {
+                          _message(
+                            context,
+                            'Enter a name, valid email, and password with at least 8 characters.',
+                          );
+                          return;
+                        }
+                        setDialogState(() => saving = true);
+                        try {
+                          await context
+                              .read<AdministrativeProvider>()
+                              .createStaff(
+                                email: workerEmail,
+                                password: workerPassword,
+                                fullName: workerName,
+                                role: role,
+                                phone: phone.text.trim(),
+                              );
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext, true);
+                          }
+                        } catch (error) {
+                          setDialogState(() => saving = false);
+                          _message(context, 'Unable to add staff member: $error');
+                        }
+                      },
+                child: saving
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Create staff account'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (created == true && mounted) {
+        setState(() => _staff = _loadStaff());
+        _message(context, 'Staff member created.');
+      }
+    } finally {
+      name.dispose();
+      email.dispose();
+      phone.dispose();
+      password.dispose();
     }
   }
 
   Future<void> _editWorker(Map<String, dynamic> worker) async {
     final workerId = worker['id']?.toString() ?? '';
     if (workerId.isEmpty) return;
-    final nameController = TextEditingController(text: worker['full_name']?.toString() ?? '');
-    final phoneController = TextEditingController(text: worker['phone']?.toString() ?? '');
+    final nameController =
+        TextEditingController(text: worker['full_name']?.toString() ?? '');
+    final phoneController =
+        TextEditingController(text: worker['phone']?.toString() ?? '');
     final roles = WorkerPermissions.getAvailableRoles('administrative');
     var role = worker['role']?.toString() ?? 'staff';
     if (!roles.contains(role)) roles.add(role);
@@ -2946,19 +3810,33 @@ class _AdministrativeStaffingScreenState
             title: const Text('Edit worker'),
             content: SingleChildScrollView(
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                TextField(controller: nameController, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: 'Full name')),
+                TextField(
+                    controller: nameController,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(labelText: 'Full name')),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Login email'),
-                  subtitle: SelectableText(worker['email']?.toString() ?? 'Not set'),
+                  subtitle:
+                      SelectableText(worker['email']?.toString() ?? 'Not set'),
                 ),
-                TextField(controller: phoneController, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Phone')),
+                TextField(
+                    controller: phoneController,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(labelText: 'Phone')),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   value: role,
                   decoration: const InputDecoration(labelText: 'Role'),
-                  items: roles.map((value) => DropdownMenuItem(value: value, child: Text(WorkerPermissions.getRoleDisplayName(value)))).toList(),
-                  onChanged: (value) { if (value != null) setDialogState(() => role = value); },
+                  items: roles
+                      .map((value) => DropdownMenuItem(
+                          value: value,
+                          child: Text(
+                              WorkerPermissions.getRoleDisplayName(value))))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) setDialogState(() => role = value);
+                  },
                 ),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
@@ -2969,7 +3847,9 @@ class _AdministrativeStaffingScreenState
               ]),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+              TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel')),
               FilledButton(
                 onPressed: () {
                   final name = nameController.text.trim();
@@ -2982,7 +3862,8 @@ class _AdministrativeStaffingScreenState
                     'phone': phoneController.text.trim(),
                     'role': role,
                     'permissions': {
-                      for (final permission in WorkerPermissions.getPermissionsForRole(role))
+                      for (final permission
+                          in WorkerPermissions.getPermissionsForRole(role))
                         permission: true,
                     },
                     'is_active': isActive,
@@ -2995,10 +3876,14 @@ class _AdministrativeStaffingScreenState
         ),
       );
       if (updates == null || !mounted) return;
-      await context.read<AdministrativeProvider>().updateStaffWorker(workerId: workerId, updates: updates);
+      await context
+          .read<AdministrativeProvider>()
+          .updateStaffWorker(workerId: workerId, updates: updates);
       if (!mounted) return;
       _message(context, 'Worker details updated.');
-      setState(() { _staff = context.read<AdministrativeProvider>().loadStaffing(); });
+      setState(() {
+        _staff = context.read<AdministrativeProvider>().loadStaffing();
+      });
     } catch (error) {
       if (mounted) _message(context, 'Unable to update worker: $error');
     } finally {
@@ -3019,7 +3904,9 @@ class _AdministrativeStaffingScreenState
       builder: (sheetContext) => StatefulBuilder(
         builder: (context, setSheetState) => SafeArea(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            ListTile(title: Text('Client Access: ${worker['full_name'] ?? 'Worker'}')),
+            ListTile(
+                title:
+                    Text('Client Access: ${worker['full_name'] ?? 'Worker'}')),
             ...clients.map((client) => CheckboxListTile(
                   title: Text(client.name),
                   subtitle: Text(client.companyName),
@@ -3085,15 +3972,27 @@ class _AdministrativeActivityScreenState
 
   Future<void> _exportActivity() async {
     try {
-      final activity = await context.read<AdministrativeProvider>().loadActivity();
+      final activity =
+          await context.read<AdministrativeProvider>().loadActivity();
       final filtered = activity.where((item) {
         final action = item['action']?.toString() ?? 'Activity';
-        final text = '${item['actor_name'] ?? ''} ${item['client_name'] ?? ''} $action'
-            .toLowerCase();
-        return (_filter == 'All' || action == _filter) && text.contains(_query.toLowerCase());
+        final text =
+            '${item['actor_name'] ?? ''} ${item['client_name'] ?? ''} $action'
+                .toLowerCase();
+        return (_filter == 'All' || action == _filter) &&
+            text.contains(_query.toLowerCase());
       });
-      String escape(Object? value) => '"${(value?.toString() ?? '').replaceAll('"', '""')}"';
-      final csv = ['Timestamp,Action,Actor,Client', ...filtered.map((item) => [escape(item['created_at']), escape(item['action']), escape(item['actor_name']), escape(item['client_name'])].join(','))].join('\n');
+      String escape(Object? value) =>
+          '"${(value?.toString() ?? '').replaceAll('"', '""')}"';
+      final csv = [
+        'Timestamp,Action,Actor,Client',
+        ...filtered.map((item) => [
+              escape(item['created_at']),
+              escape(item['action']),
+              escape(item['actor_name']),
+              escape(item['client_name'])
+            ].join(','))
+      ].join('\n');
       await Share.share(csv, subject: 'ManageCare activity log export');
     } catch (error) {
       if (mounted) _message(context, 'Unable to export activity log: $error');
@@ -3116,18 +4015,28 @@ class _AdministrativeActivityScreenState
         body: FutureBuilder<List<Map<String, dynamic>>>(
           future: _activity,
           builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-            if (snapshot.hasError) return _LoadError(onRetry: () => setState(() { _activity = context.read<AdministrativeProvider>().loadActivity(); }));
+            if (snapshot.connectionState != ConnectionState.done)
+              return const Center(child: CircularProgressIndicator());
+            if (snapshot.hasError)
+              return _LoadError(
+                  onRetry: () => setState(() {
+                        _activity = context
+                            .read<AdministrativeProvider>()
+                            .loadActivity();
+                      }));
             final activity = snapshot.data ?? const <Map<String, dynamic>>[];
-            if (activity.isEmpty) return const Center(child: Text('No recorded activity yet.'));
+            if (activity.isEmpty)
+              return const Center(child: Text('No recorded activity yet.'));
             final actions = <String>{
-              for (final item in activity) item['action']?.toString() ?? 'Activity',
+              for (final item in activity)
+                item['action']?.toString() ?? 'Activity',
             }.toList()
               ..sort();
             final visible = activity.where((item) {
               final action = item['action']?.toString() ?? 'Activity';
-              final text = '${item['actor_name'] ?? ''} ${item['client_name'] ?? ''} $action'
-                  .toLowerCase();
+              final text =
+                  '${item['actor_name'] ?? ''} ${item['client_name'] ?? ''} $action'
+                      .toLowerCase();
               return (_filter == 'All' || action == _filter) &&
                   text.contains(_query.toLowerCase());
             }).toList();
@@ -3140,7 +4049,8 @@ class _AdministrativeActivityScreenState
                   return Column(
                     children: [
                       TextField(
-                        onChanged: (value) => setState(() => _query = value.trim()),
+                        onChanged: (value) =>
+                            setState(() => _query = value.trim()),
                         decoration: const InputDecoration(
                           prefixIcon: Icon(Icons.search),
                           hintText: 'Search activity',
@@ -3158,7 +4068,8 @@ class _AdministrativeActivityScreenState
                                 (action) => ChoiceChip(
                                   label: Text(action.replaceAll('_', ' ')),
                                   selected: _filter == action,
-                                  onSelected: (_) => setState(() => _filter = action),
+                                  onSelected: (_) =>
+                                      setState(() => _filter = action),
                                 ),
                               )
                               .toList(),
@@ -3174,12 +4085,17 @@ class _AdministrativeActivityScreenState
                   );
                 }
                 final item = visible[index - 1];
-                final at = DateTime.tryParse(item['created_at']?.toString() ?? '');
+                final at =
+                    DateTime.tryParse(item['created_at']?.toString() ?? '');
                 return ListTile(
                   leading: const Icon(Icons.history_outlined),
-                  title: Text(item['action']?.toString().replaceAll('_', ' ') ?? 'Activity'),
-                  subtitle: Text('${item['actor_name'] ?? 'System'} | ${item['client_name'] ?? 'Business'}'),
-                  trailing: Text(at == null ? '' : MaterialLocalizations.of(context).formatShortDate(at)),
+                  title: Text(item['action']?.toString().replaceAll('_', ' ') ??
+                      'Activity'),
+                  subtitle: Text(
+                      '${item['actor_name'] ?? 'System'} | ${item['client_name'] ?? 'Business'}'),
+                  trailing: Text(at == null
+                      ? ''
+                      : MaterialLocalizations.of(context).formatShortDate(at)),
                 );
               },
             );
@@ -3210,7 +4126,8 @@ class AdministrativeFinancePanel extends StatefulWidget {
       _AdministrativeFinancePanelState();
 }
 
-class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel> {
+class _AdministrativeFinancePanelState
+    extends State<AdministrativeFinancePanel> {
   late Future<List<Map<String, dynamic>>> _entries;
   String _entryFilter = 'All';
   String? _clientFilter;
@@ -3222,22 +4139,34 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<List<Map<String, dynamic>>>(
+  Widget build(BuildContext context) =>
+      FutureBuilder<List<Map<String, dynamic>>>(
         future: _entries,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return _LoadError(onRetry: () => setState(() { _entries = context.read<AdministrativeProvider>().loadFinancialEntries(); }));
+            return _LoadError(
+                onRetry: () => setState(() {
+                      _entries = context
+                          .read<AdministrativeProvider>()
+                          .loadFinancialEntries();
+                    }));
           }
           final entries = snapshot.data ?? const <Map<String, dynamic>>[];
-          final revenue = entries.where((item) => item['entry_type'] == 'revenue').fold<double>(0, (sum, item) => sum + _asAmount(item['amount']));
-          final expenses = entries.where((item) => item['entry_type'] == 'expense').fold<double>(0, (sum, item) => sum + _asAmount(item['amount']));
+          final revenue = entries
+              .where((item) => item['entry_type'] == 'revenue')
+              .fold<double>(0, (sum, item) => sum + _asAmount(item['amount']));
+          final expenses = entries
+              .where((item) => item['entry_type'] == 'expense')
+              .fold<double>(0, (sum, item) => sum + _asAmount(item['amount']));
           return RefreshIndicator(
             onRefresh: () async {
               final entriesFuture = _loadEntries();
-              setState(() { _entries = entriesFuture; });
+              setState(() {
+                _entries = entriesFuture;
+              });
               await entriesFuture;
             },
             child: ListView(
@@ -3245,14 +4174,19 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
               padding: const EdgeInsets.all(16),
               children: [
                 Row(children: [
-                  Expanded(child: Text('Finance', style: Theme.of(context).textTheme.titleLarge)),
+                  Expanded(
+                      child: Text('Finance',
+                          style: Theme.of(context).textTheme.titleLarge)),
                   IconButton(
                     tooltip: 'Add financial entry',
                     onPressed: _createEntry,
                     icon: const Icon(Icons.add),
                   ),
                   TextButton.icon(
-                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AdministrativeInvoicesScreen())),
+                    onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) =>
+                                const AdministrativeInvoicesScreen())),
                     icon: const Icon(Icons.receipt_long_outlined),
                     label: const Text('Invoices'),
                   ),
@@ -3263,18 +4197,35 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
                   decoration: BoxDecoration(
                     color: AppColors.primary,
                     borderRadius: BorderRadius.circular(8),
-                    border: const Border(left: BorderSide(color: AppColors.secondary, width: 4)),
+                    border: const Border(
+                        left: BorderSide(color: AppColors.secondary, width: 4)),
                   ),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('Net balance', style: TextStyle(color: Colors.white.withOpacity(.8))),
-                    const SizedBox(height: 6),
-                    Text(_currency(revenue - expenses), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.white)),
-                    const SizedBox(height: 14),
-                    Row(children: [
-                      Expanded(child: _AmountSummary(label: 'Revenue', value: _currency(revenue), color: const Color(0xFFB9F6D2))),
-                      Expanded(child: _AmountSummary(label: 'Expenses', value: _currency(expenses), color: const Color(0xFFFFC7C7))),
-                    ]),
-                  ]),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Net balance',
+                            style:
+                                TextStyle(color: Colors.white.withOpacity(.8))),
+                        const SizedBox(height: 6),
+                        Text(_currency(revenue - expenses),
+                            style: const TextStyle(
+                                fontSize: 26,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white)),
+                        const SizedBox(height: 14),
+                        Row(children: [
+                          Expanded(
+                              child: _AmountSummary(
+                                  label: 'Revenue',
+                                  value: _currency(revenue),
+                                  color: const Color(0xFFB9F6D2))),
+                          Expanded(
+                              child: _AmountSummary(
+                                  label: 'Expenses',
+                                  value: _currency(expenses),
+                                  color: const Color(0xFFFFC7C7))),
+                        ]),
+                      ]),
                 ),
                 const SizedBox(height: 18),
                 Wrap(
@@ -3317,25 +4268,44 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
                     ),
                   ),
                 const SizedBox(height: 12),
-                Text('Recent entries', style: Theme.of(context).textTheme.titleMedium),
+                Text('Recent entries',
+                    style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 6),
                 if (entries.isEmpty)
-                  const Padding(padding: EdgeInsets.symmetric(vertical: 28), child: Center(child: Text('No financial entries yet.'))),
+                  const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 28),
+                      child: Center(child: Text('No financial entries yet.'))),
                 ...entries.take(20).map((entry) {
                   final revenueEntry = entry['entry_type'] == 'revenue';
                   return Card(
                     margin: const EdgeInsets.only(bottom: 6),
                     color: Theme.of(context).cardColor,
                     child: ListTile(
-                    onTap: () => _editEntry(entry),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    leading: CircleAvatar(
-                      backgroundColor: (revenueEntry ? Colors.green : Colors.red).withOpacity(.12),
-                      child: Icon(revenueEntry ? Icons.trending_up : Icons.trending_down, color: revenueEntry ? Colors.green : Colors.red),
-                    ),
-                    title: Text(entry['description']?.toString() ?? 'Financial entry'),
-                    subtitle: Text(entry['client_name']?.toString() ?? 'Business'),
-                    trailing: Text('${revenueEntry ? '+' : '-'}${_currency(_asAmount(entry['amount']))}', style: TextStyle(color: revenueEntry ? Colors.green : Colors.red, fontWeight: FontWeight.w700)),
+                      onTap: () => _editEntry(entry),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                      leading: CircleAvatar(
+                        backgroundColor:
+                            (revenueEntry ? Colors.green : Colors.red)
+                                .withOpacity(.12),
+                        child: Icon(
+                            revenueEntry
+                                ? Icons.trending_up
+                                : Icons.trending_down,
+                            color: revenueEntry ? Colors.green : Colors.red),
+                      ),
+                      title: Text(entry['description']?.toString() ??
+                          'Financial entry'),
+                      subtitle:
+                          Text(
+                        '${entry['client_name']?.toString() ?? 'Business'}'
+                        ' · ${_paymentMethodLabel(entry['payment_method'])}',
+                      ),
+                      trailing: Text(
+                          '${revenueEntry ? '+' : '-'}${_currency(_asAmount(entry['amount']))}',
+                          style: TextStyle(
+                              color: revenueEntry ? Colors.green : Colors.red,
+                              fontWeight: FontWeight.w700)),
                     ),
                   );
                 }),
@@ -3350,6 +4320,7 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
     final amount = TextEditingController();
     final description = TextEditingController();
     String type = 'revenue';
+    String paymentMethod = 'cash';
     String? clientId;
     final clients = context.read<AdministrativeProvider>().clients;
     final saved = await showModalBottomSheet<bool>(
@@ -3383,6 +4354,22 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
                     DropdownMenuItem(value: 'expense', child: Text('Expense')),
                   ],
                   onChanged: (value) => setSheetState(() => type = value!),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: paymentMethod,
+                  decoration: const InputDecoration(
+                    labelText: 'Payment method',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                    DropdownMenuItem(
+                        value: 'transfer', child: Text('Transfer')),
+                    DropdownMenuItem(value: 'mixed', child: Text('Mixed')),
+                  ],
+                  onChanged: (value) =>
+                      setSheetState(() => paymentMethod = value ?? 'cash'),
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -3447,6 +4434,7 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
                             entryType: type,
                             amount: double.parse(amount.text.trim()),
                             description: description.text,
+                            paymentMethod: paymentMethod,
                             clientId: clientId,
                           );
                       if (context.mounted) Navigator.of(context).pop(true);
@@ -3465,11 +4453,28 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
         ),
       ),
     );
+    final savedAmount = double.tryParse(amount.text.trim()) ?? 0;
+    final savedDescription = description.text.trim();
     amount.dispose();
     description.dispose();
     if (saved == true && mounted) {
-      setState(() { _entries = _loadEntries(); });
+      setState(() {
+        _entries = _loadEntries();
+      });
       _message(context, 'Financial entry saved');
+      if (type == 'revenue') {
+        await _showRevenueReceiptDialog(
+          context,
+          amount: savedAmount,
+          description: savedDescription,
+          paymentMethod: paymentMethod,
+          clientName: clients
+                  .where((client) => client.id == clientId)
+                  .map((client) => client.name)
+                  .firstOrNull ??
+              'Business-wide',
+        );
+      }
     }
   }
 
@@ -3492,13 +4497,18 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
 
   Future<void> _editEntry(Map<String, dynamic> entry) async {
     if (entry['invoice_id'] != null) {
-      _message(context, 'Invoice payment entries are managed from the invoice.');
+      _message(
+          context, 'Invoice payment entries are managed from the invoice.');
       return;
     }
     final formKey = GlobalKey<FormState>();
-    final amount = TextEditingController(text: _asAmount(entry['amount']).toStringAsFixed(2));
-    final description = TextEditingController(text: entry['description']?.toString() ?? '');
+    final amount = TextEditingController(
+        text: _asAmount(entry['amount']).toStringAsFixed(2));
+    final description =
+        TextEditingController(text: entry['description']?.toString() ?? '');
     var type = entry['entry_type']?.toString() ?? 'expense';
+    var paymentMethod =
+        entry['payment_method']?.toString() ?? 'cash';
     final saved = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
@@ -3514,9 +4524,20 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
               ],
               onChanged: (value) => type = value!,
             ),
+            DropdownButtonFormField<String>(
+              value: paymentMethod,
+              decoration: const InputDecoration(labelText: 'Payment method'),
+              items: const [
+                DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
+                DropdownMenuItem(value: 'mixed', child: Text('Mixed')),
+              ],
+              onChanged: (value) => paymentMethod = value ?? 'cash',
+            ),
             TextFormField(
               controller: amount,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(labelText: 'Amount'),
               validator: _nonNegativeNumber,
             ),
@@ -3528,21 +4549,27 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
           ]),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialog), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialog),
+              child: const Text('Cancel')),
           FilledButton(
             onPressed: () async {
               if (!formKey.currentState!.validate()) return;
               try {
-                await context.read<AdministrativeProvider>().updateFinancialEntry(
+                await context
+                    .read<AdministrativeProvider>()
+                    .updateFinancialEntry(
                       entryId: entry['id'].toString(),
                       entryType: type,
                       amount: double.parse(amount.text),
                       description: description.text,
+                      paymentMethod: paymentMethod,
                       clientId: entry['client_id']?.toString(),
                     );
                 if (context.mounted) Navigator.pop(dialog, true);
               } catch (error) {
-                if (context.mounted) _message(context, 'Unable to update entry: $error');
+                if (context.mounted)
+                  _message(context, 'Unable to update entry: $error');
               }
             },
             child: const Text('Save'),
@@ -3552,9 +4579,11 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
     );
     amount.dispose();
     description.dispose();
-    if (saved == true && mounted) setState(() { _entries = _loadEntries(); });
+    if (saved == true && mounted)
+      setState(() {
+        _entries = _loadEntries();
+      });
   }
-
 }
 
 class AdministrativeInvoicesScreen extends StatefulWidget {
@@ -3592,43 +4621,91 @@ class _AdministrativeInvoicesScreenState
         body: FutureBuilder<List<Map<String, dynamic>>>(
           future: _invoices,
           builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-            if (snapshot.hasError) return _LoadError(onRetry: () => setState(() { _invoices = context.read<AdministrativeProvider>().loadInvoices(); }));
+            if (snapshot.connectionState != ConnectionState.done)
+              return const Center(child: CircularProgressIndicator());
+            if (snapshot.hasError)
+              return _LoadError(
+                  onRetry: () => setState(() {
+                        _invoices = context
+                            .read<AdministrativeProvider>()
+                            .loadInvoices();
+                      }));
             final all = snapshot.data ?? const <Map<String, dynamic>>[];
-            final invoices = _filter == 'All' ? all : all.where((invoice) => invoice['status']?.toString() == _filter.toLowerCase()).toList();
+            final invoices = _filter == 'All'
+                ? all
+                : all
+                    .where((invoice) =>
+                        invoice['status']?.toString() == _filter.toLowerCase())
+                    .toList();
             return ListView(
               padding: const EdgeInsets.all(16),
               children: [
                 Wrap(
                   spacing: 8,
-                  children: ['All', 'Draft', 'Sent', 'Paid', 'Void'].map((value) => ChoiceChip(label: Text(value), selected: _filter == value, onSelected: (_) => setState(() => _filter = value))).toList(),
+                  children: ['All', 'Draft', 'Sent', 'Paid', 'Void']
+                      .map((value) => ChoiceChip(
+                          label: Text(value),
+                          selected: _filter == value,
+                          onSelected: (_) => setState(() => _filter = value)))
+                      .toList(),
                 ),
                 const SizedBox(height: 12),
                 if (invoices.isEmpty)
-                  const Padding(padding: EdgeInsets.symmetric(vertical: 32), child: Center(child: Text('No invoices in this view.'))),
+                  const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 32),
+                      child: Center(child: Text('No invoices in this view.'))),
                 ...invoices.map((invoice) {
                   final status = invoice['status']?.toString() ?? 'draft';
-                  final color = switch (status) { 'paid' => Colors.green, 'void' => Colors.red, 'sent' => Colors.orange, _ => Colors.blue };
+                  final color = switch (status) {
+                    'paid' => Colors.green,
+                    'void' => Colors.red,
+                    'sent' => Colors.orange,
+                    _ => Colors.blue
+                  };
                   return ListTile(
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => AdministrativeInvoiceDetailScreen(
-                          invoiceId: invoice['id'].toString(),
-                        ),
-                      ),
-                    ).then((_) => setState(
-                          () => _invoices = context
-                              .read<AdministrativeProvider>()
-                              .loadInvoices(),
-                        )),
+                    onTap: () => Navigator.of(context)
+                        .push(
+                          MaterialPageRoute(
+                            builder: (_) => AdministrativeInvoiceDetailScreen(
+                              invoiceId: invoice['id'].toString(),
+                            ),
+                          ),
+                        )
+                        .then((_) => setState(
+                              () => _invoices = context
+                                  .read<AdministrativeProvider>()
+                                  .loadInvoices(),
+                            )),
                     contentPadding: const EdgeInsets.symmetric(vertical: 5),
-                    leading: CircleAvatar(backgroundColor: color.withOpacity(.12), child: Icon(Icons.receipt_long_outlined, color: color)),
-                    title: Text(invoice['invoice_number']?.toString() ?? 'Invoice'),
-                    subtitle: Text(invoice['client_name']?.toString() ?? 'Client'),
-                    trailing: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
-                      Text(_currency(_asAmount(invoice['total_amount'])), style: const TextStyle(fontWeight: FontWeight.w700)),
-                      Text(status, style: TextStyle(color: color, fontSize: 12)),
-                    ]),
+                    leading: CircleAvatar(
+                        backgroundColor: color.withOpacity(.12),
+                        child: Icon(Icons.receipt_long_outlined, color: color)),
+                    title: Text(
+                        invoice['invoice_number']?.toString() ?? 'Invoice'),
+                    subtitle:
+                        Text(invoice['client_name']?.toString() ?? 'Client'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(_currency(_asAmount(invoice['total_amount'])),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w700)),
+                            Text(status,
+                                style: TextStyle(color: color, fontSize: 12)),
+                          ],
+                        ),
+                        if (status == 'draft' || status == 'sent')
+                          IconButton(
+                            tooltip: 'Update invoice status',
+                            onPressed: () => _invoiceActions(invoice),
+                            icon: const Icon(Icons.more_vert),
+                          ),
+                      ],
+                    ),
                   );
                 }),
               ],
@@ -3639,10 +4716,13 @@ class _AdministrativeInvoicesScreenState
 
   Future<void> _createInvoice() async {
     final created = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const AdministrativeCreateInvoiceScreen()),
+      MaterialPageRoute(
+          builder: (_) => const AdministrativeCreateInvoiceScreen()),
     );
     if (created == true && mounted) {
-      setState(() { _invoices = context.read<AdministrativeProvider>().loadInvoices(); });
+      setState(() {
+        _invoices = context.read<AdministrativeProvider>().loadInvoices();
+      });
     }
   }
 
@@ -3667,8 +4747,10 @@ class _AdministrativeInvoicesScreenState
             ),
           if (status == 'draft' || status == 'sent')
             ListTile(
-              leading: Icon(Icons.block_outlined, color: Theme.of(context).colorScheme.error),
-              title: Text('Void invoice', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              leading: Icon(Icons.block_outlined,
+                  color: Theme.of(context).colorScheme.error),
+              title: Text('Void invoice',
+                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
               onTap: () => Navigator.pop(sheetContext, 'void'),
             ),
         ]),
@@ -3677,42 +4759,96 @@ class _AdministrativeInvoicesScreenState
     if (action == null || !mounted) return;
     try {
       final provider = context.read<AdministrativeProvider>();
-      if (action == 'send') await provider.sendInvoice(invoice['id'].toString());
-      if (action == 'void') await provider.voidInvoice(invoice['id'].toString());
+      if (action == 'send')
+        await provider.sendInvoice(invoice['id'].toString());
+      if (action == 'void')
+        await provider.voidInvoice(invoice['id'].toString());
       if (action == 'payment') {
-        final amount = await _paymentAmount(invoice);
-        if (amount == null) return;
-        await provider.recordInvoicePayment(invoice['id'].toString(), amount);
+        final payment = await _paymentDetails(invoice);
+        if (payment == null) return;
+        await provider.recordInvoicePayment(
+          invoice['id'].toString(),
+          payment['amount'] as double,
+          paymentMethod: payment['method'] as String,
+        );
+        await _showRevenueReceiptDialog(
+          context,
+          amount: payment['amount'] as double,
+          description:
+              'Payment for invoice ${invoice['invoice_number'] ?? ''}',
+          paymentMethod: payment['method'] as String,
+          clientName: invoice['client_name']?.toString() ?? 'Client',
+        );
       }
       if (!mounted) return;
-      setState(() { _invoices = provider.loadInvoices(); });
+      setState(() {
+        _invoices = provider.loadInvoices();
+      });
       _message(context, 'Invoice updated');
     } catch (error) {
       if (mounted) _message(context, 'Unable to update invoice: $error');
     }
   }
 
-  Future<double?> _paymentAmount(Map<String, dynamic> invoice) async {
-    final remaining = _asAmount(invoice['total_amount']) - _asAmount(invoice['paid_amount']);
-    final controller = TextEditingController(text: remaining.toStringAsFixed(2));
-    final result = await showDialog<double>(
+  Future<Map<String, Object>?> _paymentDetails(
+      Map<String, dynamic> invoice) async {
+    final remaining =
+        _asAmount(invoice['total_amount']) - _asAmount(invoice['paid_amount']);
+    final controller =
+        TextEditingController(text: remaining.toStringAsFixed(2));
+    var paymentMethod = 'cash';
+    final result = await showDialog<Map<String, Object>>(
       context: context,
-      builder: (dialog) => AlertDialog(
-        title: const Text('Record Payment'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(labelText: 'Amount', border: OutlineInputBorder()),
+      builder: (dialog) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Record Payment'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controller,
+                autofocus: true,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                    labelText: 'Amount', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: paymentMethod,
+                decoration:
+                    const InputDecoration(labelText: 'Payment method'),
+                items: const [
+                  DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                  DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
+                  DropdownMenuItem(value: 'mixed', child: Text('Mixed')),
+                ],
+                onChanged: (value) => setDialogState(
+                    () => paymentMethod = value ?? 'cash'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialog),
+                child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () {
+                final amount = double.tryParse(controller.text);
+                if (amount == null || amount <= 0) return;
+                Navigator.pop(dialog, {
+                  'amount': amount,
+                  'method': paymentMethod,
+                });
+              },
+              child: const Text('Record'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialog), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialog, double.tryParse(controller.text)), child: const Text('Record')),
-        ],
       ),
     );
     controller.dispose();
-    return result == null || result <= 0 ? null : result;
+    return result;
   }
 }
 
@@ -3733,7 +4869,8 @@ class _AdministrativeInvoiceDetailScreenState
   @override
   void initState() {
     super.initState();
-    _invoice = context.read<AdministrativeProvider>().loadInvoice(widget.invoiceId);
+    _invoice =
+        context.read<AdministrativeProvider>().loadInvoice(widget.invoiceId);
   }
 
   Future<Uint8List> _buildPdf(Map<String, dynamic> invoice) async {
@@ -3748,7 +4885,9 @@ class _AdministrativeInvoiceDetailScreenState
         build: (context) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            pw.Text('INVOICE', style: pw.TextStyle(fontSize: 26, fontWeight: pw.FontWeight.bold)),
+            pw.Text('INVOICE',
+                style:
+                    pw.TextStyle(fontSize: 26, fontWeight: pw.FontWeight.bold)),
             pw.SizedBox(height: 12),
             pw.Text('Invoice: ${invoice['invoice_number'] ?? ''}'),
             pw.Text('Client: ${invoice['client_name'] ?? ''}'),
@@ -3756,18 +4895,21 @@ class _AdministrativeInvoiceDetailScreenState
             pw.SizedBox(height: 18),
             pw.Table.fromTextArray(
               headers: const ['Description', 'Quantity', 'Amount'],
-              data: items.map((item) => [
-                    item['description']?.toString() ?? '',
-                    item['quantity']?.toString() ?? '',
-                    _currency(_asAmount(item['line_total'])),
-                  ]).toList(),
+              data: items
+                  .map((item) => [
+                        item['description']?.toString() ?? '',
+                        item['quantity']?.toString() ?? '',
+                        _currency(_asAmount(item['line_total'])),
+                      ])
+                  .toList(),
             ),
             pw.SizedBox(height: 16),
             pw.Align(
               alignment: pw.Alignment.centerRight,
               child: pw.Text(
                 'Total: ${_currency(_asAmount(invoice['total_amount']))}',
-                style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
+                style:
+                    pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
               ),
             ),
             if ((invoice['notes']?.toString() ?? '').isNotEmpty) ...[
@@ -3795,7 +4937,9 @@ class _AdministrativeInvoiceDetailScreenState
               labelText: 'Recipient email', border: OutlineInputBorder()),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialog), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(dialog),
+              child: const Text('Cancel')),
           FilledButton(
             onPressed: () => Navigator.pop(dialog, controller.text.trim()),
             child: const Text('Send'),
@@ -3806,7 +4950,9 @@ class _AdministrativeInvoiceDetailScreenState
     controller.dispose();
     if (email == null || email.isEmpty || !mounted) return;
     try {
-      await context.read<AdministrativeProvider>().emailInvoice(widget.invoiceId, email);
+      await context
+          .read<AdministrativeProvider>()
+          .emailInvoice(widget.invoiceId, email);
       if (mounted) {
         setState(() {
           _invoice = context
@@ -3817,6 +4963,99 @@ class _AdministrativeInvoiceDetailScreenState
       }
     } catch (error) {
       if (mounted) _message(context, 'Unable to email invoice: $error');
+    }
+  }
+
+  Future<void> _updateInvoiceStatus(
+    Map<String, dynamic> invoice,
+    String action,
+  ) async {
+    final provider = context.read<AdministrativeProvider>();
+    try {
+      switch (action) {
+        case 'send':
+          await provider.sendInvoice(widget.invoiceId);
+        case 'void':
+          await provider.voidInvoice(widget.invoiceId);
+        case 'payment':
+          final outstanding = _asAmount(invoice['total_amount']) -
+              _asAmount(invoice['paid_amount']);
+          final controller =
+              TextEditingController(text: outstanding.toStringAsFixed(2));
+          var paymentMethod = 'cash';
+          final payment = await showDialog<Map<String, Object>>(
+            context: context,
+            builder: (dialogContext) => StatefulBuilder(
+              builder: (context, setDialogState) => AlertDialog(
+                title: const Text('Record payment'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: controller,
+                      autofocus: true,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration:
+                          const InputDecoration(labelText: 'Amount paid'),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: paymentMethod,
+                      decoration:
+                          const InputDecoration(labelText: 'Payment method'),
+                      items: const [
+                        DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                        DropdownMenuItem(
+                            value: 'transfer', child: Text('Transfer')),
+                        DropdownMenuItem(value: 'mixed', child: Text('Mixed')),
+                      ],
+                      onChanged: (value) => setDialogState(
+                          () => paymentMethod = value ?? 'cash'),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: () {
+                      final amount = double.tryParse(controller.text);
+                      if (amount == null || amount <= 0) return;
+                      Navigator.pop(dialogContext, {
+                        'amount': amount,
+                        'method': paymentMethod,
+                      });
+                    },
+                    child: const Text('Record'),
+                  ),
+                ],
+              ),
+            ),
+          );
+          controller.dispose();
+          if (payment == null) return;
+          await provider.recordInvoicePayment(
+            widget.invoiceId,
+            payment['amount'] as double,
+            paymentMethod: payment['method'] as String,
+          );
+          await _showRevenueReceiptDialog(
+            context,
+            amount: payment['amount'] as double,
+            description:
+                'Payment for invoice ${invoice['invoice_number'] ?? ''}',
+            paymentMethod: payment['method'] as String,
+            clientName: invoice['client_name']?.toString() ?? 'Client',
+          );
+      }
+      if (!mounted) return;
+      setState(() => _invoice = provider.loadInvoice(widget.invoiceId));
+      _message(context, 'Invoice status updated');
+    } catch (error) {
+      if (mounted) _message(context, 'Unable to update invoice: $error');
     }
   }
 
@@ -3833,16 +5072,17 @@ class _AdministrativeInvoiceDetailScreenState
             if (snapshot.hasError || !snapshot.hasData) {
               return _LoadError(
                   onRetry: () => setState(() {
-                    _invoice = context
-                        .read<AdministrativeProvider>()
-                        .loadInvoice(widget.invoiceId);
-                  }));
+                        _invoice = context
+                            .read<AdministrativeProvider>()
+                            .loadInvoice(widget.invoiceId);
+                      }));
             }
             final invoice = snapshot.data!;
             final items = (invoice['items'] as List? ?? const [])
                 .whereType<Map>()
                 .map((item) => Map<String, dynamic>.from(item))
                 .toList();
+            final status = invoice['status']?.toString() ?? 'draft';
             return ListView(
               padding: const EdgeInsets.all(16),
               children: [
@@ -3851,10 +5091,21 @@ class _AdministrativeInvoiceDetailScreenState
                 const SizedBox(height: 4),
                 Text(invoice['client_name']?.toString() ?? 'Client'),
                 const SizedBox(height: 16),
+                Chip(
+                  label: Text('Status: ${status.toUpperCase()}'),
+                  avatar: Icon(
+                    status == 'paid'
+                        ? Icons.check_circle_outline
+                        : status == 'void'
+                            ? Icons.block_outlined
+                            : Icons.schedule_outlined,
+                  ),
+                ),
                 ...items.map((item) => ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(item['description']?.toString() ?? 'Item'),
-                      subtitle: Text('${item['quantity'] ?? 0} x ${_currency(_asAmount(item['unit_price']))}'),
+                      subtitle: Text(
+                          '${item['quantity'] ?? 0} x ${_currency(_asAmount(item['unit_price']))}'),
                       trailing: Text(_currency(_asAmount(item['line_total']))),
                     )),
                 const Divider(),
@@ -3871,7 +5122,8 @@ class _AdministrativeInvoiceDetailScreenState
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Total'),
-                  trailing: Text(_currency(_asAmount(invoice['total_amount'])), style: const TextStyle(fontWeight: FontWeight.bold)),
+                  trailing: Text(_currency(_asAmount(invoice['total_amount'])),
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
                 ),
                 if ((invoice['notes']?.toString() ?? '').isNotEmpty)
                   Padding(
@@ -3883,6 +5135,25 @@ class _AdministrativeInvoiceDetailScreenState
                   spacing: 10,
                   runSpacing: 10,
                   children: [
+                    if (status == 'draft')
+                      FilledButton.tonalIcon(
+                        onPressed: () => _updateInvoiceStatus(invoice, 'send'),
+                        icon: const Icon(Icons.send_outlined),
+                        label: const Text('Mark as sent'),
+                      ),
+                    if (status == 'sent')
+                      FilledButton.tonalIcon(
+                        onPressed: () =>
+                            _updateInvoiceStatus(invoice, 'payment'),
+                        icon: const Icon(Icons.payments_outlined),
+                        label: const Text('Record payment'),
+                      ),
+                    if (status == 'draft' || status == 'sent')
+                      OutlinedButton.icon(
+                        onPressed: () => _updateInvoiceStatus(invoice, 'void'),
+                        icon: const Icon(Icons.block_outlined),
+                        label: const Text('Void invoice'),
+                      ),
                     OutlinedButton.icon(
                       onPressed: () async => Printing.layoutPdf(
                           onLayout: (_) => _buildPdf(invoice)),
@@ -3892,7 +5163,8 @@ class _AdministrativeInvoiceDetailScreenState
                     OutlinedButton.icon(
                       onPressed: () async => Printing.sharePdf(
                         bytes: await _buildPdf(invoice),
-                        filename: '${invoice['invoice_number'] ?? 'invoice'}.pdf',
+                        filename:
+                            '${invoice['invoice_number'] ?? 'invoice'}.pdf',
                       ),
                       icon: const Icon(Icons.ios_share_outlined),
                       label: const Text('Share PDF'),
@@ -3911,6 +5183,23 @@ class _AdministrativeInvoiceDetailScreenState
       );
 }
 
+class _InvoiceItemForm {
+  _InvoiceItemForm()
+      : description = TextEditingController(),
+        quantity = TextEditingController(text: '1'),
+        unitPrice = TextEditingController();
+
+  final TextEditingController description;
+  final TextEditingController quantity;
+  final TextEditingController unitPrice;
+
+  void dispose() {
+    description.dispose();
+    quantity.dispose();
+    unitPrice.dispose();
+  }
+}
+
 class AdministrativeCreateInvoiceScreen extends StatefulWidget {
   const AdministrativeCreateInvoiceScreen({super.key});
 
@@ -3923,10 +5212,9 @@ class _AdministrativeCreateInvoiceScreenState
     extends State<AdministrativeCreateInvoiceScreen> {
   final _formKey = GlobalKey<FormState>();
   final _number = TextEditingController(
-      text: 'INV-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}');
-  final _description = TextEditingController();
-  final _quantity = TextEditingController(text: '1');
-  final _unitPrice = TextEditingController();
+      text:
+          'INV-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}');
+  final List<_InvoiceItemForm> _items = [_InvoiceItemForm()];
   final _tax = TextEditingController(text: '0');
   final _notes = TextEditingController();
   String? _clientId;
@@ -3936,9 +5224,9 @@ class _AdministrativeCreateInvoiceScreenState
   @override
   void dispose() {
     _number.dispose();
-    _description.dispose();
-    _quantity.dispose();
-    _unitPrice.dispose();
+    for (final item in _items) {
+      item.dispose();
+    }
     _tax.dispose();
     _notes.dispose();
     super.dispose();
@@ -3954,9 +5242,13 @@ class _AdministrativeCreateInvoiceScreenState
       await context.read<AdministrativeProvider>().createInvoice(
             clientId: _clientId!,
             invoiceNumber: _number.text,
-            description: _description.text,
-            quantity: double.parse(_quantity.text),
-            unitPrice: double.parse(_unitPrice.text),
+            items: _items
+                .map((item) => {
+                      'description': item.description.text.trim(),
+                      'quantity': double.parse(item.quantity.text),
+                      'unit_price': double.parse(item.unitPrice.text),
+                    })
+                .toList(),
             taxAmount: double.tryParse(_tax.text) ?? 0,
             dueDate: _dueDate?.toIso8601String().substring(0, 10),
             notes: _notes.text,
@@ -3982,63 +5274,180 @@ class _AdministrativeCreateInvoiceScreenState
           children: [
             DropdownButtonFormField<String>(
               value: _clientId,
-              decoration: const InputDecoration(labelText: 'Client', border: OutlineInputBorder()),
-              items: clients.map((client) => DropdownMenuItem(value: client.id, child: Text(client.name))).toList(),
+              decoration: const InputDecoration(
+                  labelText: 'Client', border: OutlineInputBorder()),
+              items: clients
+                  .map((client) => DropdownMenuItem(
+                      value: client.id, child: Text(client.name)))
+                  .toList(),
               onChanged: (value) => setState(() => _clientId = value),
               validator: (value) => value == null ? 'Select a client' : null,
             ),
             const SizedBox(height: 14),
-            TextFormField(controller: _number, decoration: const InputDecoration(labelText: 'Invoice number', border: OutlineInputBorder()), validator: _required),
+            TextFormField(
+                controller: _number,
+                decoration: const InputDecoration(
+                    labelText: 'Invoice number', border: OutlineInputBorder()),
+                validator: _required),
             const SizedBox(height: 14),
-            TextFormField(controller: _description, decoration: const InputDecoration(labelText: 'Service description', border: OutlineInputBorder()), validator: _required),
+            ...List.generate(_items.length, (index) {
+              final item = _items[index];
+              return Card(
+                margin: const EdgeInsets.only(bottom: 12),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Invoice item ${index + 1}',
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                          ),
+                          if (_items.length > 1)
+                            IconButton(
+                              tooltip: 'Remove item',
+                              onPressed: _saving
+                                  ? null
+                                  : () => setState(() {
+                                        _items.removeAt(index).dispose();
+                                      }),
+                              icon: const Icon(Icons.remove_circle_outline),
+                            ),
+                        ],
+                      ),
+                      TextFormField(
+                        controller: item.description,
+                        decoration: const InputDecoration(
+                          labelText: 'Service description',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: _required,
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: item.quantity,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
+                              decoration: const InputDecoration(
+                                labelText: 'Quantity',
+                                border: OutlineInputBorder(),
+                              ),
+                              validator: _positiveNumber,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: item.unitPrice,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
+                              decoration: const InputDecoration(
+                                labelText: 'Unit price',
+                                border: OutlineInputBorder(),
+                              ),
+                              validator: _nonNegativeNumber,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: _saving
+                    ? null
+                    : () => setState(() => _items.add(_InvoiceItemForm())),
+                icon: const Icon(Icons.add),
+                label: const Text('Add item'),
+              ),
+            ),
             const SizedBox(height: 14),
-            Row(children: [
-              Expanded(child: TextFormField(controller: _quantity, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Quantity', border: OutlineInputBorder()), validator: _positiveNumber)),
-              const SizedBox(width: 12),
-              Expanded(child: TextFormField(controller: _unitPrice, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Unit price', border: OutlineInputBorder()), validator: _nonNegativeNumber)),
-            ]),
-            const SizedBox(height: 14),
-            TextFormField(controller: _tax, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Tax amount', border: OutlineInputBorder()), validator: _nonNegativeNumber),
+            TextFormField(
+                controller: _tax,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                    labelText: 'Tax amount', border: OutlineInputBorder()),
+                validator: _nonNegativeNumber),
             const SizedBox(height: 14),
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Due date'),
-              subtitle: Text(_dueDate == null ? 'No due date' : MaterialLocalizations.of(context).formatMediumDate(_dueDate!)),
+              subtitle: Text(_dueDate == null
+                  ? 'No due date'
+                  : MaterialLocalizations.of(context)
+                      .formatMediumDate(_dueDate!)),
               trailing: const Icon(Icons.calendar_today_outlined),
               onTap: () async {
-                final value = await showDatePicker(context: context, firstDate: DateTime.now(), lastDate: DateTime(DateTime.now().year + 5), initialDate: _dueDate ?? DateTime.now());
+                final value = await showDatePicker(
+                    context: context,
+                    firstDate: DateTime.now(),
+                    lastDate: DateTime(DateTime.now().year + 5),
+                    initialDate: _dueDate ?? DateTime.now());
                 if (value != null && mounted) setState(() => _dueDate = value);
               },
             ),
-            TextFormField(controller: _notes, maxLines: 3, decoration: const InputDecoration(labelText: 'Notes', border: OutlineInputBorder())),
+            TextFormField(
+                controller: _notes,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                    labelText: 'Notes', border: OutlineInputBorder())),
             const SizedBox(height: 24),
-            FilledButton.icon(onPressed: _saving ? null : _save, icon: _saving ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.receipt_long_outlined), label: Text(_saving ? 'Creating...' : 'Create Draft Invoice')),
+            FilledButton.icon(
+                onPressed: _saving ? null : _save,
+                icon: _saving
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.receipt_long_outlined),
+                label: Text(_saving ? 'Creating...' : 'Create Draft Invoice')),
           ],
         ),
       ),
     );
   }
-
 }
 
-String? _required(String? value) => value == null || value.trim().isEmpty ? 'Required' : null;
-String? _positiveNumber(String? value) => (double.tryParse(value ?? '') ?? 0) > 0 ? null : 'Enter a value above zero';
-String? _nonNegativeNumber(String? value) => (double.tryParse(value ?? '') ?? -1) >= 0 ? null : 'Enter zero or more';
+String? _required(String? value) =>
+    value == null || value.trim().isEmpty ? 'Required' : null;
+String? _positiveNumber(String? value) =>
+    (double.tryParse(value ?? '') ?? 0) > 0 ? null : 'Enter a value above zero';
+String? _nonNegativeNumber(String? value) =>
+    (double.tryParse(value ?? '') ?? -1) >= 0 ? null : 'Enter zero or more';
 
 class _AmountSummary extends StatelessWidget {
-  const _AmountSummary({required this.label, required this.value, required this.color});
+  const _AmountSummary(
+      {required this.label, required this.value, required this.color});
   final String label;
   final String value;
   final Color color;
 
   @override
-  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+  Widget build(BuildContext context) =>
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(label, style: Theme.of(context).textTheme.labelMedium),
         const SizedBox(height: 3),
-        Text(value, style: TextStyle(color: color, fontWeight: FontWeight.w700)),
+        Text(value,
+            style: TextStyle(color: color, fontWeight: FontWeight.w700)),
       ]);
 }
 
-double _asAmount(dynamic value) => value is num ? value.toDouble() : double.tryParse(value?.toString() ?? '') ?? 0;
+double _asAmount(dynamic value) => value is num
+    ? value.toDouble()
+    : double.tryParse(value?.toString() ?? '') ?? 0;
 
 String _currency(double amount) => 'NGN ${amount.toStringAsFixed(2)}';

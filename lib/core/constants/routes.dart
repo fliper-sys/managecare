@@ -83,6 +83,7 @@ class Routes {
   static const String procurementHistory = '/procurement/history';
   static const String whatsappSettings = '/settings/whatsapp';
   static const String notificationLogs = '/settings/notification-logs';
+  static const String liveLogs = '/settings/live-logs';
   static const String thermalReceiptSettings = '/settings/thermal-receipt';
 
   // Industry-Specific Routes - Administrative Services
@@ -117,7 +118,6 @@ class Routes {
   static const String productInstallation = '/install/product';
   static const String installationReceiptUpload = '/install/receipt-upload';
 
-  
   static const String pharmacyDashboard = '/pharmacy';
   static const String pharmacyPrescriptions = '/pharmacy/prescriptions';
     static const String pharmacyTreatments = '/pharmacy/treatments';
@@ -305,4 +305,3 @@ class Routes {
   static const String marketerDashboard = '/marketer/dashboard';
   static const String internalWorkerDashboard = '/internal-worker/dashboard';
 }
-

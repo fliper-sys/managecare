@@ -16,14 +16,16 @@ import '../../../services/managecare_api_client.dart';
 import '../../inventory/utils/bakery_assignment_analytics.dart';
 import '../../inventory/utils/bakery_resupply_row_mapper.dart';
 
-String summarizeBakeryActivity(Map<String, dynamic> activity, {required bool isOutput}) {
+String summarizeBakeryActivity(Map<String, dynamic> activity,
+    {required bool isOutput}) {
   if (activity.isEmpty) return 'No activity';
 
   if (isOutput) {
     final items = activity['items'] as List<dynamic>? ?? [];
     if (items.isNotEmpty) {
       final summaries = items.map((item) {
-        final mapItem = item is Map<String, dynamic> ? item : <String, dynamic>{};
+        final mapItem =
+            item is Map<String, dynamic> ? item : <String, dynamic>{};
         final name = (mapItem['name'] ?? 'Item').toString();
         final quantity = (mapItem['quantity'] ?? 0).toString();
         return '$name × $quantity';
@@ -96,7 +98,10 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
     try {
       print('[WorkerDetails] Loading worker with ID: ${widget.workerId}');
       final repo = WorkerRepositoryImpl(firestore: FirebaseFirestore.instance);
-      final data = await repo.getWorkerById(widget.workerId);
+      final businessId = widget.businessId?.trim() ?? '';
+      final data = businessId.isNotEmpty
+          ? await repo.getWorkerByIdForBusiness(businessId, widget.workerId)
+          : await repo.getWorkerById(widget.workerId);
 
       print('[WorkerDetails] Worker data: $data');
 
@@ -133,10 +138,10 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
 
       // Get sales for this worker from Firestore
       final workerStoreId = _worker?['storeId'] as String?;
-      final totalSales =
-          await retailProvider.getWorkerTotalSales(widget.workerId, storeId: workerStoreId);
-      final salesCount =
-          await retailProvider.getWorkerSalesCount(widget.workerId, storeId: workerStoreId);
+      final totalSales = await retailProvider
+          .getWorkerTotalSales(widget.workerId, storeId: workerStoreId);
+      final salesCount = await retailProvider
+          .getWorkerSalesCount(widget.workerId, storeId: workerStoreId);
 
       if (mounted) {
         setState(() {
@@ -180,7 +185,8 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
         '/api/inventory/$businessId/bakery-resupplies',
         query: {'baker_id': widget.workerId, 'limit': '500'},
       );
-      final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+      final rows =
+          ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
       final history = rows.map(bakeryResupplyRowToJson).toList();
 
       if (mounted) {
@@ -208,22 +214,36 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
   List<Map<String, dynamic>> _filterBakeryAssignments() {
     final query = _bakeryAssignmentSearch.trim().toLowerCase();
     return _bakeryResupplyHistory.where((entry) {
-      final ingredientName = (entry['inventoryName'] ?? entry['productionItemName'] ?? entry['ingredientName'] ?? '')
+      final ingredientName = (entry['inventoryName'] ??
+              entry['productionItemName'] ??
+              entry['ingredientName'] ??
+              '')
           .toString()
           .toLowerCase();
       final notes = (entry['notes'] ?? '').toString().toLowerCase();
-      final matchesSearch = query.isEmpty || ingredientName.contains(query) || notes.contains(query);
+      final matchesSearch = query.isEmpty ||
+          ingredientName.contains(query) ||
+          notes.contains(query);
 
       final createdAt = _readAssignmentDate(entry['createdAt']);
       var matchesDate = true;
       if (createdAt != null && _bakeryAssignmentStartDate != null) {
-        final startDay = DateTime(_bakeryAssignmentStartDate!.year, _bakeryAssignmentStartDate!.month, _bakeryAssignmentStartDate!.day);
+        final startDay = DateTime(_bakeryAssignmentStartDate!.year,
+            _bakeryAssignmentStartDate!.month, _bakeryAssignmentStartDate!.day);
         if (createdAt.isBefore(startDay)) {
           matchesDate = false;
         }
       }
-      if (matchesDate && createdAt != null && _bakeryAssignmentEndDate != null) {
-        final endDay = DateTime(_bakeryAssignmentEndDate!.year, _bakeryAssignmentEndDate!.month, _bakeryAssignmentEndDate!.day, 23, 59, 59);
+      if (matchesDate &&
+          createdAt != null &&
+          _bakeryAssignmentEndDate != null) {
+        final endDay = DateTime(
+            _bakeryAssignmentEndDate!.year,
+            _bakeryAssignmentEndDate!.month,
+            _bakeryAssignmentEndDate!.day,
+            23,
+            59,
+            59);
         if (createdAt.isAfter(endDay)) {
           matchesDate = false;
         }
@@ -234,7 +254,8 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
   }
 
   Future<void> _pickBakeryAssignmentDate({required bool isStart}) async {
-    final initialDate = isStart ? _bakeryAssignmentStartDate : _bakeryAssignmentEndDate;
+    final initialDate =
+        isStart ? _bakeryAssignmentStartDate : _bakeryAssignmentEndDate;
     final picked = await showDatePicker(
       context: context,
       initialDate: initialDate ?? DateTime.now(),
@@ -245,9 +266,11 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
 
     setState(() {
       if (isStart) {
-        _bakeryAssignmentStartDate = DateTime(picked.year, picked.month, picked.day);
+        _bakeryAssignmentStartDate =
+            DateTime(picked.year, picked.month, picked.day);
       } else {
-        _bakeryAssignmentEndDate = DateTime(picked.year, picked.month, picked.day);
+        _bakeryAssignmentEndDate =
+            DateTime(picked.year, picked.month, picked.day);
       }
     });
   }
@@ -281,13 +304,16 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
               if (value == null || value.trim().isEmpty) return null;
               final v = double.tryParse(value);
               if (v == null) return 'Enter a valid number';
-              if (v < 0 || v > 100) return 'Enter a percentage between 0 and 100';
+              if (v < 0 || v > 100)
+                return 'Enter a percentage between 0 and 100';
               return null;
             },
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
               if (!formKey.currentState!.validate()) return;
@@ -299,8 +325,10 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
               // (it 400s without one) - this call used to omit it entirely, so
               // every commission edit failed before commission_percentage even
               // existed as a column to write to.
-              final businessId = widget.businessId ?? _worker?['businessId'] as String?;
-              final repo = WorkerRepositoryImpl(firestore: FirebaseFirestore.instance);
+              final businessId =
+                  widget.businessId ?? _worker?['businessId'] as String?;
+              final repo =
+                  WorkerRepositoryImpl(firestore: FirebaseFirestore.instance);
               try {
                 await repo.updateWorker(widget.workerId, {
                   'commissionPercentage': parsed,
@@ -308,8 +336,12 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                 });
 
                 // Also update business-scoped barber/stylist docs if available
-                final businessType = (widget.businessType ?? _worker?['businessType'] ?? '') as String;
-                final roles = (_worker?['roles'] as List<dynamic>?)?.cast<String>() ?? [(_worker?['role'] as String?) ?? ''];
+                final businessType = (widget.businessType ??
+                    _worker?['businessType'] ??
+                    '') as String;
+                final roles =
+                    (_worker?['roles'] as List<dynamic>?)?.cast<String>() ??
+                        [(_worker?['role'] as String?) ?? ''];
                 final businessTypeLow = (businessType).toLowerCase();
 
                 if (businessId != null && businessId.isNotEmpty) {
@@ -321,30 +353,47 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                           .doc(businessId)
                           .collection('barbers')
                           .doc(widget.workerId)
-                          .set({'commissionPercentage': parsed}, SetOptions(merge: true));
-                      try { final barberProvider = context.read<BarberShopProvider>(); barberProvider.loadBarbers(); } catch (_) {}
+                          .set({'commissionPercentage': parsed},
+                              SetOptions(merge: true));
+                      try {
+                        final barberProvider =
+                            context.read<BarberShopProvider>();
+                        barberProvider.loadBarbers();
+                      } catch (_) {}
                     }
 
-                    if (roles.contains('hairstylist') || roles.contains('stylist')) {
+                    if (roles.contains('hairstylist') ||
+                        roles.contains('stylist')) {
                       await FirebaseFirestore.instance
                           .collection('businesses')
                           .doc(businessId)
                           .collection('stylists')
                           .doc(widget.workerId)
-                          .set({'commissionPercentage': parsed}, SetOptions(merge: true));
-                      try { final salonProvider = context.read<SalonProvider>(); salonProvider.loadStylists(); } catch (_) {}
+                          .set({'commissionPercentage': parsed},
+                              SetOptions(merge: true));
+                      try {
+                        final salonProvider = context.read<SalonProvider>();
+                        salonProvider.loadStylists();
+                      } catch (_) {}
                     }
 
                     // Fallback: if roles didn't explicitly indicate, use business type hints
-                    if (!(roles.contains('barber') || roles.contains('hairstylist') || roles.contains('stylist'))) {
+                    if (!(roles.contains('barber') ||
+                        roles.contains('hairstylist') ||
+                        roles.contains('stylist'))) {
                       if (businessTypeLow.contains('barber')) {
                         await FirebaseFirestore.instance
                             .collection('businesses')
                             .doc(businessId)
                             .collection('barbers')
                             .doc(widget.workerId)
-                            .set({'commissionPercentage': parsed}, SetOptions(merge: true));
-                        try { final barberProvider = context.read<BarberShopProvider>(); barberProvider.loadBarbers(); } catch (_) {}
+                            .set({'commissionPercentage': parsed},
+                                SetOptions(merge: true));
+                        try {
+                          final barberProvider =
+                              context.read<BarberShopProvider>();
+                          barberProvider.loadBarbers();
+                        } catch (_) {}
                       }
                       if (businessTypeLow.contains('salon')) {
                         await FirebaseFirestore.instance
@@ -352,20 +401,29 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                             .doc(businessId)
                             .collection('stylists')
                             .doc(widget.workerId)
-                            .set({'commissionPercentage': parsed}, SetOptions(merge: true));
-                        try { final salonProvider = context.read<SalonProvider>(); salonProvider.loadStylists(); } catch (_) {}
+                            .set({'commissionPercentage': parsed},
+                                SetOptions(merge: true));
+                        try {
+                          final salonProvider = context.read<SalonProvider>();
+                          salonProvider.loadStylists();
+                        } catch (_) {}
                       }
                     }
                   } catch (e) {
-                    print('[WorkerDetails] Failed to update business-scoped commission: $e');
+                    print(
+                        '[WorkerDetails] Failed to update business-scoped commission: $e');
                   }
                 }
 
                 // Reload worker and show success
                 await _loadWorker();
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Commission updated')));
+                if (mounted)
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Commission updated')));
               } catch (e) {
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to update commission: $e')));
+                if (mounted)
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text('Failed to update commission: $e')));
               }
             },
             child: const Text('Save'),
@@ -406,12 +464,14 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                     labelText: 'New password',
                     helperText: 'At least 8 characters',
                     suffixIcon: IconButton(
-                      icon: Icon(obscure ? Icons.visibility : Icons.visibility_off),
+                      icon: Icon(
+                          obscure ? Icons.visibility : Icons.visibility_off),
                       onPressed: () => setStateSB(() => obscure = !obscure),
                     ),
                   ),
                   validator: (v) {
-                    if (v == null || v.length < 8) return 'Enter at least 8 characters';
+                    if (v == null || v.length < 8)
+                      return 'Enter at least 8 characters';
                     return null;
                   },
                 ),
@@ -419,7 +479,8 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                 TextFormField(
                   controller: confirmCtrl,
                   obscureText: obscure,
-                  decoration: const InputDecoration(labelText: 'Confirm password'),
+                  decoration:
+                      const InputDecoration(labelText: 'Confirm password'),
                   validator: (v) {
                     if (v != passwordCtrl.text) return 'Passwords do not match';
                     return null;
@@ -450,10 +511,10 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
     try {
       final businessId = widget.businessId ?? _worker?['businessId'] as String?;
       await context.read<WorkersProvider>().updateWorker(
-        widget.workerId,
-        {'password': newPassword},
-        businessId: businessId,
-      );
+            widget.workerId,
+            {'password': newPassword},
+            businessId: businessId,
+          );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -472,12 +533,15 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
   Future<void> _showEditWorkerDialog() async {
     final nameCtrl = TextEditingController(text: _worker?['name'] ?? '');
     final emailCtrl = TextEditingController(text: _worker?['email'] ?? '');
-    final phoneCtrl = TextEditingController(text: _worker?['phoneNumber'] ?? _worker?['phone'] ?? '');
+    final phoneCtrl = TextEditingController(
+        text: _worker?['phoneNumber'] ?? _worker?['phone'] ?? '');
     final pinCtrl = TextEditingController(text: _worker?['pin'] ?? '');
     bool isActive = _worker?['isActive'] == true;
-    final rolesList = (_worker?['roles'] as List<dynamic>?)?.cast<String>() ?? [(_worker?['role'] as String?) ?? 'staff'];
+    final rolesList = (_worker?['roles'] as List<dynamic>?)?.cast<String>() ??
+        [(_worker?['role'] as String?) ?? 'staff'];
     final rolesCtrl = TextEditingController(text: rolesList.join(', '));
-    final servicesList = (_worker?['serviceNames'] as List<dynamic>?)?.cast<String>() ?? [];
+    final servicesList =
+        (_worker?['serviceNames'] as List<dynamic>?)?.cast<String>() ?? [];
     final servicesCtrl = TextEditingController(text: servicesList.join(', '));
     final formKey = GlobalKey<FormState>();
 
@@ -495,7 +559,8 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                   TextFormField(
                     controller: nameCtrl,
                     decoration: const InputDecoration(labelText: 'Full name'),
-                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter a name' : null,
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? 'Enter a name' : null,
                   ),
                   TextFormField(
                     controller: emailCtrl,
@@ -503,7 +568,8 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                     validator: (v) {
                       if (v == null || v.trim().isEmpty) return null;
                       final email = v.trim();
-                      if (!RegExp(r"^[^@\s]+@[^@\s]+\.[^@\s]+$").hasMatch(email)) return 'Enter a valid email';
+                      if (!RegExp(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+                          .hasMatch(email)) return 'Enter a valid email';
                       return null;
                     },
                   ),
@@ -524,17 +590,22 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                               labelText: 'PIN',
                               helperText: 'Optional: 4-6 digit numeric PIN',
                               suffixIcon: IconButton(
-                                icon: Icon(obscurePin ? Icons.visibility : Icons.visibility_off),
-                                onPressed: () => setPinState(() => obscurePin = !obscurePin),
+                                icon: Icon(obscurePin
+                                    ? Icons.visibility
+                                    : Icons.visibility_off),
+                                onPressed: () =>
+                                    setPinState(() => obscurePin = !obscurePin),
                               ),
                             ),
                             keyboardType: TextInputType.number,
                             obscureText: obscurePin,
                             maxLength: 6,
                             validator: (v) {
-                              if (v == null || v.trim().isEmpty) return null; // optional
+                              if (v == null || v.trim().isEmpty)
+                                return null; // optional
                               final cleaned = v.trim();
-                              if (!RegExp(r'^\d{4,6}$').hasMatch(cleaned)) return 'Enter a 4-6 digit numeric PIN';
+                              if (!RegExp(r'^\d{4,6}$').hasMatch(cleaned))
+                                return 'Enter a 4-6 digit numeric PIN';
                               return null;
                             },
                           ),
@@ -571,7 +642,9 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+            TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Cancel')),
             ElevatedButton(
               onPressed: () async {
                 if (!formKey.currentState!.validate()) return;
@@ -597,14 +670,22 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                   'pin': pinCtrl.text.trim(),
                   'isActive': isActive,
                   'roles': normalizedRoles,
-                  'serviceNames': servicesCtrl.text.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList(),
+                  'serviceNames': servicesCtrl.text
+                      .split(',')
+                      .map((s) => s.trim())
+                      .where((s) => s.isNotEmpty)
+                      .toList(),
                   'updatedAt': DateTime.now(),
                 };
 
                 try {
-                  final businessId = widget.businessId ?? _worker?['businessId'] as String?;
-                  final roles = (updateMap['roles'] as List<dynamic>?)?.cast<String>();
-                  await context.read<WorkersProvider>().updateWorker(widget.workerId, updateMap, businessId: businessId, roles: roles);
+                  final businessId =
+                      widget.businessId ?? _worker?['businessId'] as String?;
+                  final roles =
+                      (updateMap['roles'] as List<dynamic>?)?.cast<String>();
+                  await context.read<WorkersProvider>().updateWorker(
+                      widget.workerId, updateMap,
+                      businessId: businessId, roles: roles);
 
                   // If we're editing the current signed-in user, refresh AuthProvider
                   final auth = context.read<AuthProvider>();
@@ -613,9 +694,13 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                   }
 
                   await _loadWorker();
-                  if (mounted) ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('Worker updated')));
+                  if (mounted)
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                        const SnackBar(content: Text('Worker updated')));
                 } catch (e) {
-                  if (mounted) ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(content: Text('Failed to update worker: $e')));
+                  if (mounted)
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                        SnackBar(content: Text('Failed to update worker: $e')));
                 }
               },
               child: const Text('Save'),
@@ -631,9 +716,12 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Worker'),
-        content: const Text('Are you sure you want to permanently delete this worker? This action cannot be undone.'),
+        content: const Text(
+            'Are you sure you want to permanently delete this worker? This action cannot be undone.'),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.of(ctx).pop(true),
@@ -647,17 +735,22 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
 
     try {
       final businessId = widget.businessId ?? _worker?['businessId'] as String?;
-      await context.read<WorkersProvider>().deleteWorker(widget.workerId, businessId: businessId);
+      await context
+          .read<WorkersProvider>()
+          .deleteWorker(widget.workerId, businessId: businessId);
       if (businessId != null && businessId.trim().isNotEmpty) {
         await context.read<BusinessProvider>().refreshBusinessStats(businessId);
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Worker deleted')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Worker deleted')));
         Navigator.of(context).pop(); // go back to list
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to delete worker: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to delete worker: $e')));
     }
   }
 
@@ -754,8 +847,10 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                   Row(
                     children: [
                       ProfileAvatar(
-                        photoUrl: (_worker?['photoUrl'] ?? _worker?['photo_url']) as String?,
-                        initials: ((_worker?['name'] as String? ?? 'W')[0].toUpperCase()),
+                        photoUrl: (_worker?['photoUrl'] ??
+                            _worker?['photo_url']) as String?,
+                        initials: ((_worker?['name'] as String? ?? 'W')[0]
+                            .toUpperCase()),
                         radius: 32,
                         backgroundColor: AppColors.primary,
                       ),
@@ -798,7 +893,11 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
           _buildDetailRow('Email', _worker?['email'] ?? 'N/A'),
           _buildDetailRow(
               'Phone', _worker?['phoneNumber'] ?? _worker?['phone'] ?? 'N/A'),
-          _buildDetailRow('PIN', _worker?['pin'] != null && _worker!['pin'].toString().isNotEmpty ? '••••' : 'Not set'),
+          _buildDetailRow(
+              'PIN',
+              _worker?['pin'] != null && _worker!['pin'].toString().isNotEmpty
+                  ? '••••'
+                  : 'Not set'),
           const SizedBox(height: 16),
           const Text('Employment Information', style: AppTextStyles.heading4),
           const SizedBox(height: 8),
@@ -813,7 +912,8 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
   }
 
   Widget _buildPermissionsTab() {
-    final roles = (_worker?['roles'] as List<dynamic>?)?.cast<String>() ?? [(_worker?['role'] as String? ?? 'staff')];
+    final roles = (_worker?['roles'] as List<dynamic>?)?.cast<String>() ??
+        [(_worker?['role'] as String? ?? 'staff')];
     final customPermissions =
         (_worker?['customPermissions'] as List<dynamic>?)?.cast<String>() ?? [];
     final primaryRole = roles.isNotEmpty ? roles.first : 'staff';
@@ -830,11 +930,13 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
       children: [
         Card(
           child: ExpansionTile(
-                title: Row(
+            title: Row(
               children: [
                 Expanded(
                   child: Text(
-                    roles.map((r) => WorkerPermissions.getRoleDisplayName(r)).join(', '),
+                    roles
+                        .map((r) => WorkerPermissions.getRoleDisplayName(r))
+                        .join(', '),
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),
@@ -881,24 +983,34 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
   }
 
   void _showEditPermissionsDialog() {
-    final roles = (_worker?['roles'] as List<dynamic>?)?.cast<String>() ?? [(_worker?['role'] as String?) ?? 'staff'];
-    final businessType = widget.businessType ?? (_worker?['businessType'] as String? ?? 'retail');
+    final roles = (_worker?['roles'] as List<dynamic>?)?.cast<String>() ??
+        [(_worker?['role'] as String?) ?? 'staff'];
+    final businessType = widget.businessType ??
+        (_worker?['businessType'] as String? ?? 'retail');
     final availableRoles = WorkerPermissions.getAvailableRoles(businessType);
     String selectedRole = roles.isNotEmpty ? roles.first : 'staff';
 
-    final currentCustom = (_worker?['customPermissions'] as List<dynamic>?)?.cast<String>() ?? [];
+    final currentCustom =
+        (_worker?['customPermissions'] as List<dynamic>?)?.cast<String>() ?? [];
     // Build a broad permissions list: role defaults + admin-grantable + all known permissions
     final permissionOptionsSet = <String>{}
       ..addAll(WorkerPermissions.getPermissionsForRole(selectedRole))
       ..addAll(WorkerPermissions.getAdminGrantablePermissions())
       ..addAll(WorkerPermissions.getAllPermissions());
     final permissionOptions = permissionOptionsSet.toList()
-      ..sort((a, b) => WorkerPermissions.getPermissionLabel(a).compareTo(WorkerPermissions.getPermissionLabel(b)));
+      ..sort((a, b) => WorkerPermissions.getPermissionLabel(a)
+          .compareTo(WorkerPermissions.getPermissionLabel(b)));
 
     final selectedPermissions = <String>{...currentCustom};
-    bool useOverride = currentCustom.contains(WorkerPermissions.permissionOverrideMarker);
+    bool useOverride =
+        currentCustom.contains(WorkerPermissions.permissionOverrideMarker);
 
-    final terminalUserIdController = TextEditingController(text: (_worker?['terminalUserId'] ?? _worker?['deviceUserId'] ?? _worker?['attendanceDeviceUserId'] ?? '') as String? ?? '');
+    final terminalUserIdController = TextEditingController(
+        text: (_worker?['terminalUserId'] ??
+                _worker?['deviceUserId'] ??
+                _worker?['attendanceDeviceUserId'] ??
+                '') as String? ??
+            '');
 
     final isTargetOwner = (_worker?['isOwner'] == true);
 
@@ -913,12 +1025,15 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Align(alignment: Alignment.centerLeft, child: Text('Role')),
+                  const Align(
+                      alignment: Alignment.centerLeft, child: Text('Role')),
                   const SizedBox(height: 8),
                   if (isTargetOwner)
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 8.0),
-                      child: Text('This worker is an owner; role changes are disabled here.', style: TextStyle(color: Colors.red)),
+                      child: Text(
+                          'This worker is an owner; role changes are disabled here.',
+                          style: TextStyle(color: Colors.red)),
                     ),
                   ...availableRoles.map((role) => RadioListTile<String>(
                         title: Text(WorkerPermissions.getRoleDisplayName(role)),
@@ -934,7 +1049,8 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                                   if (!useOverride) {
                                     selectedPermissions
                                       ..clear()
-                                      ..addAll(WorkerPermissions.getPermissionsForRole(value));
+                                      ..addAll(WorkerPermissions
+                                          .getPermissionsForRole(value));
                                   }
                                 });
                               },
@@ -958,22 +1074,32 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                           // revert to role defaults
                           selectedPermissions
                             ..clear()
-                            ..addAll(WorkerPermissions.getPermissionsForRole(selectedRole));
+                            ..addAll(WorkerPermissions.getPermissionsForRole(
+                                selectedRole));
                         }
                       });
                     },
                   ),
                   const SizedBox(height: 8),
-                  Align(alignment: Alignment.centerLeft, child: Text('Selectable permissions', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600))),
+                  Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text('Selectable permissions',
+                          style: TextStyle(
+                              color: Colors.grey,
+                              fontWeight: FontWeight.w600))),
                   const SizedBox(height: 8),
                   ...permissionOptions.map((permission) => CheckboxListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: Text(WorkerPermissions.getPermissionLabel(permission)),
+                        title: Text(
+                            WorkerPermissions.getPermissionLabel(permission)),
                         value: selectedPermissions.contains(permission),
                         onChanged: (value) {
                           setState(() {
-                            if (value == true) selectedPermissions.add(permission); else selectedPermissions.remove(permission);
+                            if (value == true)
+                              selectedPermissions.add(permission);
+                            else
+                              selectedPermissions.remove(permission);
                           });
                         },
                       )),
@@ -982,41 +1108,55 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
-            ElevatedButton(onPressed: () async {
-              // Build final permissions list
-              final savedPermissions = <String>[];
-              if (useOverride) savedPermissions.add(WorkerPermissions.permissionOverrideMarker);
-              savedPermissions.addAll(selectedPermissions.where((p) => p != WorkerPermissions.permissionOverrideMarker));
+            TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Cancel')),
+            ElevatedButton(
+                onPressed: () async {
+                  // Build final permissions list
+                  final savedPermissions = <String>[];
+                  if (useOverride)
+                    savedPermissions
+                        .add(WorkerPermissions.permissionOverrideMarker);
+                  savedPermissions.addAll(selectedPermissions.where(
+                      (p) => p != WorkerPermissions.permissionOverrideMarker));
 
-              final updateMap = <String, dynamic>{
-                'role': selectedRole,
-                'roles': [selectedRole],
-                'customPermissions': savedPermissions,
-                'permissions': savedPermissions,
-                'terminalUserId': terminalUserIdController.text.trim(),
-                'deviceUserId': terminalUserIdController.text.trim(),
-                'attendanceDeviceUserId': terminalUserIdController.text.trim(),
-                'updatedAt': DateTime.now(),
-              };
+                  final updateMap = <String, dynamic>{
+                    'role': selectedRole,
+                    'roles': [selectedRole],
+                    'customPermissions': savedPermissions,
+                    'permissions': savedPermissions,
+                    'terminalUserId': terminalUserIdController.text.trim(),
+                    'deviceUserId': terminalUserIdController.text.trim(),
+                    'attendanceDeviceUserId':
+                        terminalUserIdController.text.trim(),
+                    'updatedAt': DateTime.now(),
+                  };
 
-              try {
-                final workersProvider = context.read<WorkersProvider>();
-                await workersProvider.updateWorker(widget.workerId, updateMap, businessId: widget.businessId, roles: [selectedRole]);
+                  try {
+                    final workersProvider = context.read<WorkersProvider>();
+                    await workersProvider.updateWorker(
+                        widget.workerId, updateMap,
+                        businessId: widget.businessId, roles: [selectedRole]);
 
-                // If the edited worker is the current signed-in user, refresh auth so navs update
-                final auth = context.read<AuthProvider>();
-                if (auth.currentUser?.id == widget.workerId) {
-                  await auth.refresh();
-                }
+                    // If the edited worker is the current signed-in user, refresh auth so navs update
+                    final auth = context.read<AuthProvider>();
+                    if (auth.currentUser?.id == widget.workerId) {
+                      await auth.refresh();
+                    }
 
-                await _loadWorker();
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Worker permissions updated')));
-              } catch (e) {
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to update: $e')));
-              }
-              Navigator.of(ctx).pop();
-            }, child: const Text('Update')),
+                    await _loadWorker();
+                    if (mounted)
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text('Worker permissions updated')));
+                  } catch (e) {
+                    if (mounted)
+                      ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Failed to update: $e')));
+                  }
+                  Navigator.of(ctx).pop();
+                },
+                child: const Text('Update')),
           ],
         );
       }),
@@ -1024,8 +1164,13 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
   }
 
   Widget _buildPerformanceTab() {
-    final isBakeryWorker = (_worker?['role'] ?? '').toString().toLowerCase().contains('baker') ||
-        (_worker?['roles'] as List<dynamic>?)?.any((role) => role.toString().toLowerCase().contains('baker')) == true;
+    final isBakeryWorker = (_worker?['role'] ?? '')
+            .toString()
+            .toLowerCase()
+            .contains('baker') ||
+        (_worker?['roles'] as List<dynamic>?)?.any(
+                (role) => role.toString().toLowerCase().contains('baker')) ==
+            true;
 
     final isLoadingBakery = _loadingBakeryHistory;
     final bakeryInput = _filterBakeryAssignments();
@@ -1077,29 +1222,37 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                       labelText: 'Filter by ingredient or note',
                       prefixIcon: Icon(Icons.search),
                     ),
-                    onChanged: (value) => setState(() => _bakeryAssignmentSearch = value),
+                    onChanged: (value) =>
+                        setState(() => _bakeryAssignmentSearch = value),
                   ),
                   const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: () => _pickBakeryAssignmentDate(isStart: true),
+                          onPressed: () =>
+                              _pickBakeryAssignmentDate(isStart: true),
                           icon: const Icon(Icons.calendar_today_outlined),
-                          label: Text(_bakeryAssignmentStartDate == null ? 'From date' : '${_bakeryAssignmentStartDate!.day}/${_bakeryAssignmentStartDate!.month}/${_bakeryAssignmentStartDate!.year}'),
+                          label: Text(_bakeryAssignmentStartDate == null
+                              ? 'From date'
+                              : '${_bakeryAssignmentStartDate!.day}/${_bakeryAssignmentStartDate!.month}/${_bakeryAssignmentStartDate!.year}'),
                         ),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: () => _pickBakeryAssignmentDate(isStart: false),
+                          onPressed: () =>
+                              _pickBakeryAssignmentDate(isStart: false),
                           icon: const Icon(Icons.event_outlined),
-                          label: Text(_bakeryAssignmentEndDate == null ? 'To date' : '${_bakeryAssignmentEndDate!.day}/${_bakeryAssignmentEndDate!.month}/${_bakeryAssignmentEndDate!.year}'),
+                          label: Text(_bakeryAssignmentEndDate == null
+                              ? 'To date'
+                              : '${_bakeryAssignmentEndDate!.day}/${_bakeryAssignmentEndDate!.month}/${_bakeryAssignmentEndDate!.year}'),
                         ),
                       ),
                     ],
                   ),
-                  if (_bakeryAssignmentStartDate != null || _bakeryAssignmentEndDate != null) ...[
+                  if (_bakeryAssignmentStartDate != null ||
+                      _bakeryAssignmentEndDate != null) ...[
                     const SizedBox(height: 8),
                     Align(
                       alignment: Alignment.centerLeft,
@@ -1121,18 +1274,24 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Assignment analytics', style: TextStyle(fontWeight: FontWeight.w700)),
+                        const Text('Assignment analytics',
+                            style: TextStyle(fontWeight: FontWeight.w700)),
                         const SizedBox(height: 8),
                         Text('Assignments: ${analytics.assignmentCount}'),
-                        Text('Expected total: ${analytics.expectedTotal.toStringAsFixed(0)}'),
-                        Text('Actual total: ${analytics.actualTotal.toStringAsFixed(0)}'),
-                        Text('Variance: ${analytics.variance >= 0 ? '+' : ''}${analytics.variance.toStringAsFixed(0)}'),
-                        Text('Completion rate: ${analytics.completionRate.toStringAsFixed(1)}%'),
+                        Text(
+                            'Expected total: ${analytics.expectedTotal.toStringAsFixed(0)}'),
+                        Text(
+                            'Actual total: ${analytics.actualTotal.toStringAsFixed(0)}'),
+                        Text(
+                            'Variance: ${analytics.variance >= 0 ? '+' : ''}${analytics.variance.toStringAsFixed(0)}'),
+                        Text(
+                            'Completion rate: ${analytics.completionRate.toStringAsFixed(1)}%'),
                       ],
                     ),
                   ),
                   const SizedBox(height: 16),
-                  const Text('Previous assignments', style: TextStyle(fontWeight: FontWeight.w600)),
+                  const Text('Previous assignments',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
                   const SizedBox(height: 8),
                   if (isLoadingBakery)
                     const Padding(
@@ -1142,47 +1301,62 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                   else if (bakeryInput.isEmpty)
                     const Padding(
                       padding: EdgeInsets.only(bottom: 8),
-                      child: Text('No bakery assignments recorded for this baker yet.'),
+                      child: Text(
+                          'No bakery assignments recorded for this baker yet.'),
                     )
-                  else ...bakeryInput.map((entry) {
-                    final name = (entry['productionItemName'] ?? entry['inventoryName'] ?? 'Ingredient').toString();
-                    final expected = ((entry['expectedProductionAmount'] as num?) ?? 0).toDouble();
-                    final actual = ((entry['actualProductionAmount'] as num?) ?? 0).toDouble();
-                    final variance = actual - expected;
-                    final notes = (entry['notes'] ?? '').toString().trim();
-                    final parsedCreatedAt = _readAssignmentDate(entry['createdAt']);
-                    final dateLabel = parsedCreatedAt != null
-                        ? '${parsedCreatedAt.day}/${parsedCreatedAt.month}/${parsedCreatedAt.year}'
-                        : 'Unknown date';
+                  else
+                    ...bakeryInput.map((entry) {
+                      final name = (entry['productionItemName'] ??
+                              entry['inventoryName'] ??
+                              'Ingredient')
+                          .toString();
+                      final expected =
+                          ((entry['expectedProductionAmount'] as num?) ?? 0)
+                              .toDouble();
+                      final actual =
+                          ((entry['actualProductionAmount'] as num?) ?? 0)
+                              .toDouble();
+                      final variance = actual - expected;
+                      final notes = (entry['notes'] ?? '').toString().trim();
+                      final parsedCreatedAt =
+                          _readAssignmentDate(entry['createdAt']);
+                      final dateLabel = parsedCreatedAt != null
+                          ? '${parsedCreatedAt.day}/${parsedCreatedAt.month}/${parsedCreatedAt.year}'
+                          : 'Unknown date';
 
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: AppColors.primary.withOpacity(0.15)),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(child: Text(name, style: AppTextStyles.body1)),
-                                Text(dateLabel, style: AppTextStyles.caption),
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                                color: AppColors.primary.withOpacity(0.15)),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                      child: Text(name,
+                                          style: AppTextStyles.body1)),
+                                  Text(dateLabel, style: AppTextStyles.caption),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                  'Expected: ${expected.toStringAsFixed(0)} • Actual: ${actual.toStringAsFixed(0)} • Variance: ${variance >= 0 ? '+' : ''}${variance.toStringAsFixed(0)}',
+                                  style: AppTextStyles.caption),
+                              if (notes.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(notes, style: AppTextStyles.caption),
                               ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text('Expected: ${expected.toStringAsFixed(0)} • Actual: ${actual.toStringAsFixed(0)} • Variance: ${variance >= 0 ? '+' : ''}${variance.toStringAsFixed(0)}', style: AppTextStyles.caption),
-                            if (notes.isNotEmpty) ...[
-                              const SizedBox(height: 4),
-                              Text(notes, style: AppTextStyles.caption),
                             ],
-                          ],
+                          ),
                         ),
-                      ),
-                    );
-                  }),
+                      );
+                    }),
                 ],
               ),
             ),
@@ -1243,7 +1417,10 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
     try {
       final roles = _worker?['roles'] as List<dynamic>?;
       if (roles != null && roles.isNotEmpty) {
-        return roles.map((r) => WorkerPermissions.getRoleDisplayName((r as String?) ?? 'staff')).join(', ');
+        return roles
+            .map((r) =>
+                WorkerPermissions.getRoleDisplayName((r as String?) ?? 'staff'))
+            .join(', ');
       }
       // fallback to single role field
       return WorkerPermissions.getRoleDisplayName(_worker?['role'] ?? 'staff');
@@ -1269,4 +1446,3 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
     return 'N/A';
   }
 }
-

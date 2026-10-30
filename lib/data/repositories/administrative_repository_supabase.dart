@@ -377,12 +377,17 @@ class AdministrativeRepositorySupabase {
     String businessId,
     String invoiceId,
     String email,
-  ) =>
-      _http.post(
+  ) async {
+    try {
+      await _http.post(
         '/administrative/$businessId/invoices/$invoiceId/email',
         data: {'email': email},
         options: _options,
       );
+    } on DioException catch (error) {
+      throw StateError(_responseError(error, 'Invoice could not be emailed'));
+    }
+  }
 
   Future<void> createCalendarEvent(
     String businessId,
@@ -447,10 +452,13 @@ class AdministrativeRepositorySupabase {
     String businessId,
     String invoiceId,
     double amount,
+    {
+    required String paymentMethod,
+  }
   ) =>
       _http.post(
         '/administrative/$businessId/invoices/$invoiceId/payments',
-        data: {'amount': amount},
+        data: {'amount': amount, 'payment_method': paymentMethod},
         options: _options,
       );
 

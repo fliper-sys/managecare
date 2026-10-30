@@ -8,6 +8,7 @@ import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
 import '../../../services/subscription_service.dart';
 import '../../../services/business_restriction_service.dart';
+import '../../../services/device_logger_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -100,13 +101,33 @@ class _SplashScreenState extends State<SplashScreen>
         hasCachedUser: authProvider.hasCachedUser,
         autoLoginEnabled: authProvider.isPersistentLoginEnabled,
       );
+      DeviceLoggerService.capture(
+        'Splash auth decision: status=${authProvider.status}, '
+        'authenticated=${authProvider.isAuthenticated}, '
+        'current user loaded=${authProvider.currentUser != null}, '
+        'auto-login=${authProvider.isPersistentLoginEnabled}, '
+        'cached user available=${authProvider.hasCachedUser}, '
+        'navigate to login=$shouldNavigateToLogin',
+      );
 
       if (hasPersistedLogin && authProvider.currentUser == null) {
+        DeviceLoggerService.capture(
+          'Splash waiting for cached-user restore before routing',
+          severity: 'WARNING',
+        );
         await Future.delayed(const Duration(milliseconds: 800));
         if (!mounted) return;
         if (authProvider.currentUser == null && authProvider.hasCachedUser) {
           // Give the startup restore a brief chance to repopulate the user from
           // the local cached session before forcing a login redirect.
+          DeviceLoggerService.setRecoveryNotice(
+            'A saved account is on this device, but it could not be restored. '
+            'Connect to the internet and sign in again.',
+          );
+          DeviceLoggerService.capture(
+            'Splash kept visible: cached user exists but auth provider did not restore it',
+            severity: 'ERROR',
+          );
           return;
         }
       }
@@ -115,7 +136,14 @@ class _SplashScreenState extends State<SplashScreen>
           authProvider.isAuthenticated &&
           authProvider.currentUser != null) {
         final isOnline = await ConnectivityHelper.hasInternetConnection();
-        if (!isOnline) {
+        if (!isOnline ||
+            authProvider.isUsingCachedSessionWithoutSupabaseSession) {
+          if (isOnline) {
+            DeviceLoggerService.capture(
+              'Splash routing to cached dashboard: persistent local user is available but Supabase session is not restored',
+              severity: 'WARNING',
+            );
+          }
           final user = authProvider.currentUser!;
           if (user.email.toLowerCase() == 'mcadmin@mc.c') {
             Navigator.of(context).pushReplacementNamed(Routes.adminDashboard);
@@ -135,8 +163,16 @@ class _SplashScreenState extends State<SplashScreen>
         if (!mounted) return;
         if (authProvider.currentUser == null) {
           if (hasPersistedLogin && authProvider.hasCachedUser) {
+            DeviceLoggerService.capture(
+              'Splash kept open after profile refresh cleared current user; cached login still exists',
+              severity: 'ERROR',
+            );
             return;
           }
+          DeviceLoggerService.capture(
+            'Splash navigating to login: profile refresh left no current user and no usable cached login',
+            severity: 'ERROR',
+          );
           Navigator.of(context).pushReplacementNamed(Routes.login);
           return;
         }
@@ -156,11 +192,12 @@ class _SplashScreenState extends State<SplashScreen>
           return;
         }
 
-        final restrictionState = await BusinessRestrictionService()
-            .getRestrictionState(
+        final restrictionState =
+            await BusinessRestrictionService().getRestrictionState(
           userId: user.id,
-          businessId:
-              user.primaryBusinessId.isNotEmpty ? user.primaryBusinessId : user.businessId,
+          businessId: user.primaryBusinessId.isNotEmpty
+              ? user.primaryBusinessId
+              : user.businessId,
         );
 
         if (restrictionState?.isRestricted == true) {
@@ -188,14 +225,14 @@ class _SplashScreenState extends State<SplashScreen>
               await _fetchBusinessSubscriptionStatus(currentBusinessId);
           final hasActiveCurrentBusinessSubscription =
               _hasActiveCurrentBusinessSubscription(subscriptionData);
-          final hasLocalActiveSubscription = user.isSubscriptionValid ||
-              authProvider.subscriptionValidated;
+          final hasLocalActiveSubscription =
+              user.isSubscriptionValid || authProvider.subscriptionValidated;
 
           final subscriptionStatus =
               (subscriptionData?['subscriptionReviewStatus'] ??
-                      subscriptionData?['subscriptionStatus'])
-                  ?.toString()
-                  .toLowerCase() ??
+                          subscriptionData?['subscriptionStatus'])
+                      ?.toString()
+                      .toLowerCase() ??
                   '';
 
           if (subscriptionStatus == 'pending_approval' &&
@@ -243,6 +280,18 @@ class _SplashScreenState extends State<SplashScreen>
           await _navigateWorkerToDashboard(user);
         }
       } else {
+        if (authProvider.hasCachedUser &&
+            !authProvider.isPersistentLoginEnabled) {
+          DeviceLoggerService.setRecoveryNotice(
+            'Automatic sign-in is turned off. Sign in to continue.',
+          );
+        }
+        DeviceLoggerService.capture(
+          'Splash navigating to login: user is unauthenticated; '
+          'auto-login=${authProvider.isPersistentLoginEnabled}, '
+          'cached user available=${authProvider.hasCachedUser}',
+          severity: 'WARNING',
+        );
         print('[SplashScreen] User not authenticated, navigating to login');
         if (hasPersistedLogin && authProvider.hasCachedUser) {
           return;
@@ -250,11 +299,20 @@ class _SplashScreenState extends State<SplashScreen>
         Navigator.of(context).pushReplacementNamed(Routes.login);
       }
     } catch (e) {
+      DeviceLoggerService.capture(
+        'Splash auth check failed (${e.runtimeType}); '
+        'mounted=$mounted',
+        severity: 'ERROR',
+      );
       print('[SplashScreen] Error during auth check: $e');
       if (mounted) {
         final authProvider = context.read<AuthProvider>();
         if (authProvider.isPersistentLoginEnabled &&
             authProvider.hasCachedUser) {
+          DeviceLoggerService.setRecoveryNotice(
+            'We could not restore your saved sign-in. '
+            'Connect to the internet and sign in again.',
+          );
           return;
         }
         Navigator.of(context).pushReplacementNamed(Routes.login);
@@ -275,19 +333,20 @@ class _SplashScreenState extends State<SplashScreen>
       Map<String, dynamic>? subscriptionData) {
     if (subscriptionData == null) return false;
 
-    final reviewStatus =
-        subscriptionData['subscriptionReviewStatus']?.toString().toLowerCase() ??
-            '';
+    final reviewStatus = subscriptionData['subscriptionReviewStatus']
+            ?.toString()
+            .toLowerCase() ??
+        '';
     final status =
         subscriptionData['subscriptionStatus']?.toString().toLowerCase() ?? '';
-    final hasActiveFlag =
-        subscriptionData['hasActiveSubscription'] == true ||
-            subscriptionData['isSubscriptionActive'] == true;
+    final hasActiveFlag = subscriptionData['hasActiveSubscription'] == true ||
+        subscriptionData['isSubscriptionActive'] == true;
     final statusLooksActive = reviewStatus == 'approved' ||
         reviewStatus == 'active' ||
         status == 'approved' ||
         status == 'active';
-    final endDate = _parseSubscriptionDate(subscriptionData['subscriptionEndDate']);
+    final endDate =
+        _parseSubscriptionDate(subscriptionData['subscriptionEndDate']);
     final isWithinDuration = endDate == null ||
         SubscriptionService.isWithinSubscriptionAccessWindow(endDate);
 
@@ -522,6 +581,46 @@ class _SplashScreenState extends State<SplashScreen>
                                     fontSize: 12,
                                     color: Colors.white.withOpacity(0.64),
                                   ),
+                                ),
+                                ValueListenableBuilder<String?>(
+                                  valueListenable:
+                                      DeviceLoggerService.recoveryNotice,
+                                  builder: (context, notice, _) {
+                                    if (notice == null) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    return Container(
+                                      margin: const EdgeInsets.only(top: 18),
+                                      padding: const EdgeInsets.all(14),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0x33F3B35C),
+                                        borderRadius: BorderRadius.circular(14),
+                                        border: Border.all(
+                                          color: const Color(0x66F3B35C),
+                                        ),
+                                      ),
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const Icon(
+                                            Icons.info_outline,
+                                            color: Color(0xFFF3B35C),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Text(
+                                              notice,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                height: 1.4,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
                                 ),
                               ],
                             ),

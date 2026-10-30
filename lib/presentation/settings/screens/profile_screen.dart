@@ -779,13 +779,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (res == true) {
         // Update auth provider cache so UI reflects changes immediately
-        await authProvider.updateProfile(
+        final authUpdated = await authProvider.updateProfile(
           email: email,
           fullName: fullName,
           phoneNumber: phoneNumber,
           address: address,
           jobTitle: jobTitle,
         );
+        if (!authUpdated) {
+          _safeShowSnackBar(
+            SnackBar(
+              content: Text(
+                authProvider.errorMessage ?? 'Failed to update profile.',
+              ),
+              backgroundColor: AppColors.error,
+            ),
+          );
+          return;
+        }
 
         await showSuccessLottieDialog(
           context,
@@ -862,7 +873,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         );
 
                         // Update auth provider
-                        await authProvider.updateProfile(photoUrl: '');
+                        final updated =
+                            await authProvider.updateProfile(photoUrl: '');
+                        if (!updated) {
+                          throw StateError(
+                            authProvider.errorMessage ??
+                                'Failed to remove profile photo.',
+                          );
+                        }
 
                         // Clear previous image cache
                         try {
@@ -943,7 +961,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
           profilePhotoUrl: cachebustedUrl,
         );
 
-        await authProvider.updateProfile(photoUrl: cachebustedUrl);
+        final profileUpdated =
+            await authProvider.updateProfile(photoUrl: cachebustedUrl);
+        if (!profileUpdated) {
+          throw StateError(
+            authProvider.errorMessage ?? 'Failed to save profile photo.',
+          );
+        }
 
         // Persist to users collection (best-effort)
         try {
@@ -1042,7 +1066,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
 
       if (success) {
-        await authProvider.updateProfile(photoUrl: cachebustedUrl);
+        final profileUpdated =
+            await authProvider.updateProfile(photoUrl: cachebustedUrl);
+        if (!profileUpdated) {
+          throw StateError(
+            authProvider.errorMessage ?? 'Failed to save profile photo.',
+          );
+        }
         try {
           await FirebaseFirestore.instance.collection('users').doc(ids['userId']).set({'photoUrl': cachebustedUrl}, SetOptions(merge: true));
         } catch (e) {
@@ -1171,7 +1201,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   phoneNumber: _phoneController.text,
                                   profilePhotoUrl: '',
                                 );
-                                await authProvider.updateProfile(photoUrl: '');
+                                final updated =
+                                    await authProvider.updateProfile(photoUrl: '');
+                                if (!updated) {
+                                  throw StateError(
+                                    authProvider.errorMessage ??
+                                        'Failed to remove profile photo.',
+                                  );
+                                }
                                 try {
                                   await _evictAndRemoveCache(prevPhotoUrl);
                                 } catch (e) {

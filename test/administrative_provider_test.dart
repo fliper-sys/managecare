@@ -26,7 +26,7 @@ void main() {
       expect(task.reviewStorageAction, 'new_version');
     });
 
-    test('trailing obligations calculate from the completion date', () {
+    test('completed trailing obligations advance to the next active period', () {
       final provider = AdministrativeProvider();
 
       provider.createObligation(
@@ -40,7 +40,7 @@ void main() {
 
       provider.completeObligation(obligation.id);
 
-      expect(obligation.isCompleted, isTrue);
+      expect(obligation.isCompleted, isFalse);
       expect(obligation.dueAt.isAfter(beforeCompletion.add(const Duration(days: 29))), isTrue);
       expect(obligation.dueAt.isBefore(beforeCompletion.add(const Duration(days: 31))), isTrue);
     });

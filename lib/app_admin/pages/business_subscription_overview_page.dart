@@ -51,14 +51,14 @@ class _BusinessSubscriptionOverviewPageState
             if (_query.isEmpty) return true;
             final query = _query.toLowerCase();
             final name = (business['name'] ?? '').toString().toLowerCase();
-            final owner =
-                (business['ownerName'] ?? business['email'] ?? '')
-                    .toString()
-                    .toLowerCase();
-            final tier =
-                (business['subscriptionTier'] ?? business['businessClass'] ?? '')
-                    .toString()
-                    .toLowerCase();
+            final owner = (business['ownerName'] ?? business['email'] ?? '')
+                .toString()
+                .toLowerCase();
+            final tier = (business['subscriptionTier'] ??
+                    business['businessClass'] ??
+                    '')
+                .toString()
+                .toLowerCase();
             return name.contains(query) ||
                 owner.contains(query) ||
                 tier.contains(query);
@@ -167,8 +167,8 @@ class _BusinessSubscriptionOverviewPageState
                 else if (businesses.isEmpty)
                   Container(
                     padding: const EdgeInsets.all(28),
-                    decoration:
-                        context.adminCardDecoration(borderRadius: BorderRadius.circular(24)),
+                    decoration: context.adminCardDecoration(
+                        borderRadius: BorderRadius.circular(24)),
                     child: Column(
                       children: [
                         Icon(
@@ -237,17 +237,15 @@ class _BusinessSubscriptionOverviewPageState
     final owner =
         (business['ownerName'] ?? business['email'] ?? 'Unknown Owner')
             .toString();
-    final tier = (business['subscriptionTier'] ??
-            business['businessClass'] ??
-            'tier1')
-        .toString();
+    final tier =
+        (business['subscriptionTier'] ?? business['businessClass'] ?? 'tier1')
+            .toString();
     final startDate = _subscriptionStartDate(business);
     final dueDate = _subscriptionEndDate(business);
     final dueText = dueDate == null ? 'No due date' : _formatDate(dueDate);
     final startText = startDate == null ? 'Not set' : _formatDate(startDate);
-    final dueDays = dueDate == null
-        ? null
-        : dueDate.difference(DateTime.now()).inDays;
+    final dueDays =
+        dueDate == null ? null : dueDate.difference(DateTime.now()).inDays;
     final dueLabel = dueDays == null
         ? 'No active subscription'
         : dueDays < 0
@@ -403,7 +401,7 @@ class _BusinessSubscriptionOverviewPageState
   void _showManageSheet(Map<String, dynamic> business) {
     String selectedTier =
         (business['subscriptionTier'] ?? 'tier1').toString().toLowerCase();
-    int selectedDuration = 365;
+    final durationController = TextEditingController(text: '365');
 
     showModalBottomSheet(
       context: context,
@@ -449,16 +447,17 @@ class _BusinessSubscriptionOverviewPageState
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: ['tier1', 'tier2', 'tier3', 'basic', 'pro', 'enterprise']
-                    .map(
-                      (tier) => ChoiceChip(
-                        label: Text(tier.toUpperCase()),
-                        selected: selectedTier == tier,
-                        onSelected: (_) =>
-                            setModalState(() => selectedTier = tier),
-                      ),
-                    )
-                    .toList(),
+                children:
+                    ['tier1', 'tier2', 'tier3', 'basic', 'pro', 'enterprise']
+                        .map(
+                          (tier) => ChoiceChip(
+                            label: Text(tier.toUpperCase()),
+                            selected: selectedTier == tier,
+                            onSelected: (_) =>
+                                setModalState(() => selectedTier = tier),
+                          ),
+                        )
+                        .toList(),
               ),
               const SizedBox(height: 18),
               Text(
@@ -469,25 +468,14 @@ class _BusinessSubscriptionOverviewPageState
                 ),
               ),
               const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: const [
-                  (30, '30 days'),
-                  (90, '90 days'),
-                  (180, '180 days'),
-                  (365, '365 days'),
-                ]
-                    .map(
-                      (option) => ChoiceChip(
-                        label: Text(option.$2),
-                        selected: selectedDuration == option.$1,
-                        onSelected: (_) => setModalState(
-                          () => selectedDuration = option.$1,
-                        ),
-                      ),
-                    )
-                    .toList(),
+              TextField(
+                controller: durationController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Number of days',
+                  hintText: 'Enter subscription duration',
+                  suffixText: 'days',
+                ),
               ),
               const SizedBox(height: 20),
               _buildSubscriptionHistory(
@@ -498,12 +486,21 @@ class _BusinessSubscriptionOverviewPageState
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed: () async {
+                    final selectedDuration =
+                        int.tryParse(durationController.text.trim());
+                    if (selectedDuration == null || selectedDuration < 1) {
+                      ScaffoldMessenger.of(this.context).showSnackBar(
+                        const SnackBar(
+                            content: Text(
+                                'Enter a valid duration of at least 1 day')),
+                      );
+                      return;
+                    }
                     final ok = await context
                         .read<AdminProvider>()
                         .grantBusinessSubscription(
-                          businessId:
-                              (business['id'] ?? business['businessId'])
-                                  .toString(),
+                          businessId: (business['id'] ?? business['businessId'])
+                              .toString(),
                           businessName:
                               (business['name'] ?? 'Business').toString(),
                           tier: selectedTier,

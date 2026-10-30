@@ -87,8 +87,7 @@ class _DashboardHomeState extends State<DashboardHome> {
   @override
   void initState() {
     super.initState();
-    _selectedIndex =
-        widget.initialIndex.clamp(0, _pages.length - 1).toInt();
+    _selectedIndex = widget.initialIndex.clamp(0, _pages.length - 1).toInt();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<AdminProvider>().fetchAdminStats();
@@ -251,82 +250,277 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: context.adminBackground,
-      child: SafeArea(
-        child: RefreshIndicator(
-        onRefresh: () =>
-            context.read<AdminProvider>().fetchAdminStats(force: true),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Consumer<AdminProvider>(
-          builder: (context, admin, _) {
-            final activeBusinesses = admin.activeBusinessesCount;
-            final restrictedBusinesses = admin.restrictedBusinessesCount;
-            final activeSubscriptions = admin.activeSubscriptionsCount;
-            final pendingApprovals = admin.pendingSubscriptionApprovalsCount;
-            final marketers = admin.marketersCount;
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        color: context.adminBackground,
+        child: SafeArea(
+            child: RefreshIndicator(
+          onRefresh: () =>
+              context.read<AdminProvider>().fetchAdminStats(force: true),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Consumer<AdminProvider>(
+              builder: (context, admin, _) {
+                final activeBusinesses = admin.activeBusinessesCount;
+                final restrictedBusinesses = admin.restrictedBusinessesCount;
+                final activeSubscriptions = admin.activeSubscriptionsCount;
+                final pendingApprovals =
+                    admin.pendingSubscriptionApprovalsCount;
+                final marketers = admin.marketersCount;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    // Header
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          'ManageCare',
-                          style: TextStyle(
-                            fontSize: 26,
-                            fontWeight: FontWeight.w800,
-                            color: context.adminTextPrimary,
-                            letterSpacing: -0.5,
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'ManageCare',
+                              style: TextStyle(
+                                fontSize: 26,
+                                fontWeight: FontWeight.w800,
+                                color: context.adminTextPrimary,
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Platform Overview',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: context.adminTextSecondary,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            GestureDetector(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (ctx) =>
+                                        const AdminNotificationsPage(),
+                                  ),
+                                );
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [
+                                      Color(0xFF6366F1),
+                                      Color(0xFF8B5CF6)
+                                    ],
+                                  ),
+                                  borderRadius: BorderRadius.circular(15),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF6366F1)
+                                          .withOpacity(0.3),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(Icons.notifications_rounded,
+                                    color: Colors.white),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            GestureDetector(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (ctx) =>
+                                        const BusinessSubscriptionOverviewPage(),
+                                  ),
+                                );
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [
+                                      Color(0xFF22C55E),
+                                      Color(0xFF84CC16)
+                                    ],
+                                  ),
+                                  borderRadius: BorderRadius.circular(15),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF22C55E)
+                                          .withOpacity(0.3),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(Icons.subscriptions_rounded,
+                                    color: Colors.white),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Search Bar
+                    TextField(
+                      controller: _searchController,
+                      onChanged: (value) {
+                        setState(() => _searchQuery = value.toLowerCase());
+                      },
+                      decoration: InputDecoration(
+                        prefixIcon: Icon(
+                          Icons.search_rounded,
+                          color: context.adminTextTertiary,
+                        ),
+                        hintText: 'Search businesses, users...',
+                        hintStyle: TextStyle(color: context.adminTextTertiary),
+                        filled: true,
+                        fillColor: context.adminSurface,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 16),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Stats Cards - showing real data from AdminProvider
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildStatCard(
+                            'Total Businesses',
+                            admin.stats.totalBusinesses.toString(),
+                            Icons.business_rounded,
+                            const Color(0xFF3B82F6),
+                            '$activeBusinesses active',
+                            onTap: () => Navigator.pushNamed(
+                              context,
+                              Routes.allBusinessesAdmin,
+                            ),
                           ),
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Platform Overview',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: context.adminTextSecondary,
-                            fontWeight: FontWeight.w500,
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildStatCard(
+                            'Active Businesses',
+                            activeSubscriptions.toString(),
+                            Icons.verified_user_rounded,
+                            const Color(0xFF10B981),
+                            'Active subscriptions',
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (ctx) =>
+                                    const BusinessSubscriptionOverviewPage(),
+                              ),
+                            ),
                           ),
                         ),
                       ],
                     ),
+                    const SizedBox(height: 12),
                     Row(
                       children: [
-                        GestureDetector(
-                          onTap: () {
-                            Navigator.push(
+                        Expanded(
+                          child: _buildStatCard(
+                            'Restricted',
+                            restrictedBusinesses.toString(),
+                            Icons.gpp_bad_rounded,
+                            const Color(0xFFEF4444),
+                            restrictedBusinesses > 0 ? 'Follow up' : 'Healthy',
+                            onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (ctx) => const AdminNotificationsPage(),
+                                builder: (ctx) =>
+                                    const AdminDashboardApp(initialIndex: 4),
                               ),
-                            );
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-                              ),
-                              borderRadius: BorderRadius.circular(15),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFF6366F1)
-                                      .withOpacity(0.3),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
                             ),
-                            child: const Icon(Icons.notifications_rounded, color: Colors.white),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        GestureDetector(
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildStatCard(
+                            'Expenses',
+                            'Register',
+                            Icons.account_balance_wallet_rounded,
+                            const Color(0xFF14B8A6),
+                            'Company costs',
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (ctx) =>
+                                    const AdminDashboardApp(initialIndex: 5),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildStatCard(
+                            'Revenue',
+                            formatCurrency(admin.stats.totalRevenue.toDouble()),
+                            Icons.attach_money_rounded,
+                            const Color(0xFF8B5CF6),
+                            '${admin.stats.totalTransactions} transactions',
+                            onTap: () => Navigator.pushNamed(
+                                context, Routes.adminPayments),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildStatCard(
+                            'Marketers',
+                            marketers.toString(),
+                            Icons.campaign_rounded,
+                            const Color(0xFF6366F1),
+                            'Growth partners',
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (ctx) =>
+                                    const AdminDashboardApp(initialIndex: 8),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Admin Operations',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: context.adminTextPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        _buildQuickActionTile(
+                          context,
+                          title: 'Subscription Queue',
+                          subtitle: 'View live plans and subscription history',
+                          icon: Icons.fact_check_rounded,
+                          color: const Color(0xFFF97316),
                           onTap: () {
                             Navigator.push(
                               context,
@@ -336,503 +530,325 @@ class _DashboardPageState extends State<DashboardPage> {
                               ),
                             );
                           },
-                          child: Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF22C55E), Color(0xFF84CC16)],
+                        ),
+                        _buildQuickActionTile(
+                          context,
+                          title: 'Business Control',
+                          subtitle: 'Edit details and registered accounts',
+                          icon: Icons.business_center_rounded,
+                          color: const Color(0xFF3B82F6),
+                          onTap: () => Navigator.pushNamed(
+                            context,
+                            Routes.allBusinessesAdmin,
+                          ),
+                        ),
+                        _buildQuickActionTile(
+                          context,
+                          title: 'User Access',
+                          subtitle: 'Inspect users and linked workers',
+                          icon: Icons.groups_rounded,
+                          color: const Color(0xFF10B981),
+                          onTap: () => Navigator.pushNamed(
+                            context,
+                            Routes.adminUsersAndWorkers,
+                          ),
+                        ),
+                        _buildQuickActionTile(
+                          context,
+                          title: 'Restricted Accounts',
+                          subtitle: 'See locked businesses and reasons',
+                          icon: Icons.gpp_bad_rounded,
+                          color: const Color(0xFFEF4444),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (ctx) =>
+                                    const AdminDashboardApp(initialIndex: 4),
                               ),
-                              borderRadius: BorderRadius.circular(15),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFF22C55E).withOpacity(0.3),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
+                            );
+                          },
+                        ),
+                        _buildQuickActionTile(
+                          context,
+                          title: 'Company Expenses',
+                          subtitle: 'Register expenses and receipts',
+                          icon: Icons.account_balance_wallet_rounded,
+                          color: const Color(0xFF0EA5E9),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (ctx) =>
+                                    const AdminDashboardApp(initialIndex: 5),
+                              ),
+                            );
+                          },
+                        ),
+                        _buildQuickActionTile(
+                          context,
+                          title: 'ManageCare Workers',
+                          subtitle:
+                              'Create support, programmer, and admin roles',
+                          icon: Icons.badge_rounded,
+                          color: const Color(0xFF14B8A6),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (ctx) =>
+                                    const AdminDashboardApp(initialIndex: 6),
+                              ),
+                            );
+                          },
+                        ),
+                        _buildQuickActionTile(
+                          context,
+                          title: 'Work Board',
+                          subtitle: 'Send fixes and updates to IT',
+                          icon: Icons.task_alt_rounded,
+                          color: const Color(0xFF64748B),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (ctx) =>
+                                    const AdminDashboardApp(initialIndex: 7),
+                              ),
+                            );
+                          },
+                        ),
+                        _buildQuickActionTile(
+                          context,
+                          title: 'Marketer Hub',
+                          subtitle: 'Manage partners, payouts and activity',
+                          icon: Icons.campaign_rounded,
+                          color: const Color(0xFF6366F1),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (ctx) =>
+                                    const AdminDashboardApp(initialIndex: 8),
+                              ),
+                            );
+                          },
+                        ),
+                        _buildQuickActionTile(
+                          context,
+                          title: 'Subscription Overview',
+                          subtitle: 'See owners, start dates, and due dates',
+                          icon: Icons.manage_accounts_rounded,
+                          color: const Color(0xFF14B8A6),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (ctx) =>
+                                    const BusinessSubscriptionOverviewPage(),
+                              ),
+                            );
+                          },
+                        ),
+                        _buildQuickActionTile(
+                          context,
+                          title: 'Notifications',
+                          subtitle: 'Broadcast admin notices quickly',
+                          icon: Icons.notifications_active_rounded,
+                          color: const Color(0xFF8B5CF6),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (ctx) =>
+                                    const AdminNotificationsPage(),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                    if (pendingApprovals > 0 || restrictedBusinesses > 0) ...[
+                      const SizedBox(height: 20),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          color: context.adminSurfaceStrong,
+                          borderRadius: BorderRadius.circular(22),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: const Icon(
+                                Icons.priority_high_rounded,
+                                color: Colors.white,
+                              ),
                             ),
-                            child: const Icon(Icons.subscriptions_rounded, color: Colors.white),
-                          ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Needs Attention',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '$pendingApprovals legacy subscription reviews and $restrictedBusinesses restricted businesses need admin follow-up.',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.78),
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
+                      ),
+                    ],
+                    const SizedBox(height: 28),
 
-                // Search Bar
-                TextField(
-                  controller: _searchController,
-                  onChanged: (value) {
-                    setState(() => _searchQuery = value.toLowerCase());
-                  },
-                  decoration: InputDecoration(
-                    prefixIcon: Icon(
-                      Icons.search_rounded,
-                      color: context.adminTextTertiary,
-                    ),
-                    hintText: 'Search businesses, users...',
-                    hintStyle: TextStyle(color: context.adminTextTertiary),
-                    filled: true,
-                    fillColor: context.adminSurface,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // Stats Cards - showing real data from AdminProvider
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildStatCard(
-                        'Total Businesses',
-                        admin.stats.totalBusinesses.toString(),
-                        Icons.business_rounded,
-                        const Color(0xFF3B82F6),
-                        '$activeBusinesses active',
-                        onTap: () => Navigator.pushNamed(
-                          context,
-                          Routes.allBusinessesAdmin,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildStatCard(
-                        'Active Businesses',
-                        activeSubscriptions.toString(),
-                        Icons.verified_user_rounded,
-                        const Color(0xFF10B981),
-                        'Active subscriptions',
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (ctx) =>
-                                const BusinessSubscriptionOverviewPage(),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildStatCard(
-                        'Restricted',
-                        restrictedBusinesses.toString(),
-                        Icons.gpp_bad_rounded,
-                        const Color(0xFFEF4444),
-                        restrictedBusinesses > 0 ? 'Follow up' : 'Healthy',
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (ctx) =>
-                                const AdminDashboardApp(initialIndex: 4),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildStatCard(
-                        'Expenses',
-                        'Register',
-                        Icons.account_balance_wallet_rounded,
-                        const Color(0xFF14B8A6),
-                        'Company costs',
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (ctx) =>
-                                const AdminDashboardApp(initialIndex: 5),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildStatCard(
-                        'Revenue',
-                        formatCurrency(admin.stats.totalRevenue.toDouble()),
-                        Icons.attach_money_rounded,
-                        const Color(0xFF8B5CF6),
-                        '${admin.stats.totalTransactions} transactions',
-                        onTap: () =>
-                            Navigator.pushNamed(context, Routes.adminPayments),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildStatCard(
-                        'Marketers',
-                        marketers.toString(),
-                        Icons.campaign_rounded,
-                        const Color(0xFF6366F1),
-                        'Growth partners',
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (ctx) =>
-                                const AdminDashboardApp(initialIndex: 8),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  'Admin Operations',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: context.adminTextPrimary,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    _buildQuickActionTile(
-                      context,
-                      title: 'Subscription Queue',
-                      subtitle: 'View live plans and subscription history',
-                      icon: Icons.fact_check_rounded,
-                      color: const Color(0xFFF97316),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (ctx) =>
-                                const BusinessSubscriptionOverviewPage(),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildQuickActionTile(
-                      context,
-                      title: 'Business Control',
-                      subtitle: 'Edit details and registered accounts',
-                      icon: Icons.business_center_rounded,
-                      color: const Color(0xFF3B82F6),
-                      onTap: () => Navigator.pushNamed(
-                        context,
-                        Routes.allBusinessesAdmin,
-                      ),
-                    ),
-                    _buildQuickActionTile(
-                      context,
-                      title: 'User Access',
-                      subtitle: 'Inspect users and linked workers',
-                      icon: Icons.groups_rounded,
-                      color: const Color(0xFF10B981),
-                      onTap: () => Navigator.pushNamed(
-                        context,
-                        Routes.adminUsersAndWorkers,
-                      ),
-                    ),
-                    _buildQuickActionTile(
-                      context,
-                      title: 'Restricted Accounts',
-                      subtitle: 'See locked businesses and reasons',
-                      icon: Icons.gpp_bad_rounded,
-                      color: const Color(0xFFEF4444),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (ctx) =>
-                                const AdminDashboardApp(initialIndex: 4),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildQuickActionTile(
-                      context,
-                      title: 'Company Expenses',
-                      subtitle: 'Register expenses and receipts',
-                      icon: Icons.account_balance_wallet_rounded,
-                      color: const Color(0xFF0EA5E9),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (ctx) =>
-                                const AdminDashboardApp(initialIndex: 5),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildQuickActionTile(
-                      context,
-                      title: 'ManageCare Workers',
-                      subtitle: 'Create support, programmer, and admin roles',
-                      icon: Icons.badge_rounded,
-                      color: const Color(0xFF14B8A6),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (ctx) =>
-                                const AdminDashboardApp(initialIndex: 6),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildQuickActionTile(
-                      context,
-                      title: 'Work Board',
-                      subtitle: 'Send fixes and updates to IT',
-                      icon: Icons.task_alt_rounded,
-                      color: const Color(0xFF64748B),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (ctx) =>
-                                const AdminDashboardApp(initialIndex: 7),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildQuickActionTile(
-                      context,
-                      title: 'Marketer Hub',
-                      subtitle: 'Manage partners, payouts and activity',
-                      icon: Icons.campaign_rounded,
-                      color: const Color(0xFF6366F1),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (ctx) =>
-                                const AdminDashboardApp(initialIndex: 8),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildQuickActionTile(
-                      context,
-                      title: 'Subscription Overview',
-                      subtitle: 'See owners, start dates, and due dates',
-                      icon: Icons.manage_accounts_rounded,
-                      color: const Color(0xFF14B8A6),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (ctx) =>
-                                const BusinessSubscriptionOverviewPage(),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildQuickActionTile(
-                      context,
-                      title: 'Notifications',
-                      subtitle: 'Broadcast admin notices quickly',
-                      icon: Icons.notifications_active_rounded,
-                      color: const Color(0xFF8B5CF6),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (ctx) => const AdminNotificationsPage(),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-                if (pendingApprovals > 0 || restrictedBusinesses > 0) ...[
-                  const SizedBox(height: 20),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      color: context.adminSurfaceStrong,
-                      borderRadius: BorderRadius.circular(22),
-                    ),
-                    child: Row(
+                    // Recent Activity Section
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: const Icon(
-                            Icons.priority_high_rounded,
-                            color: Colors.white,
+                        Text(
+                          'Recent Activity',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: context.adminTextPrimary,
                           ),
                         ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Needs Attention',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 16,
-                                ),
+                        TextButton(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (ctx) => const AllBusinessesPage(),
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '$pendingApprovals legacy subscription reviews and $restrictedBusinesses restricted businesses need admin follow-up.',
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.78),
-                                  height: 1.35,
-                                ),
-                              ),
-                            ],
-                          ),
+                            );
+                          },
+                          child: const Text('See all',
+                              style: TextStyle(fontWeight: FontWeight.w600)),
                         ),
                       ],
                     ),
-                  ),
-                ],
-                const SizedBox(height: 28),
+                    const SizedBox(height: 12),
 
-                // Recent Activity Section
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
+                    // Activity List - Show filtered businesses from admin.allBusinesses
+                    if (admin.allBusinesses.isNotEmpty)
+                      ..._getFilteredBusinesses(admin.allBusinesses)
+                          .take(3)
+                          .map((business) {
+                        final businessName =
+                            business['name'] ?? 'Unknown Business';
+                        final ownerName = business['email'] ?? 'Unknown Owner';
+                        final businessType =
+                            business['businessType'] ?? 'General';
+                        final isActive = business['isActive'] ?? true;
+                        final createdAt = business['createdAt'];
+
+                        String timeAgo = 'Recently';
+                        if (createdAt != null) {
+                          try {
+                            DateTime? date;
+                            if (createdAt is Timestamp) {
+                              date = createdAt.toDate();
+                            } else if (createdAt is DateTime) {
+                              date = createdAt;
+                            } else {
+                              date = DateTime.tryParse(createdAt.toString());
+                            }
+                            if (date != null) {
+                              final now = DateTime.now();
+                              final diff = now.difference(date);
+                              if (diff.inHours < 1) {
+                                timeAgo = '${diff.inMinutes}m ago';
+                              } else if (diff.inHours < 24) {
+                                timeAgo = '${diff.inHours}h ago';
+                              } else {
+                                timeAgo = '${diff.inDays}d ago';
+                              }
+                            }
+                          } catch (e) {
+                            timeAgo = 'Recently';
+                          }
+                        }
+
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: GestureDetector(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (ctx) =>
+                                      BusinessDetailPage(business: business),
+                                ),
+                              );
+                            },
+                            child: _buildActivityCard(
+                              businessName,
+                              ownerName,
+                              businessType,
+                              timeAgo,
+                              _getColorForBusinessType(businessType),
+                              isActive,
+                            ),
+                          ),
+                        );
+                      })
+                    else
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        child: Center(
+                          child: Text(
+                            'No businesses yet',
+                            style: TextStyle(color: context.adminTextSecondary),
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 28),
+
+                    // Tier Distribution
                     Text(
-                      'Recent Activity',
+                      'Business Type Distribution',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
                         color: context.adminTextPrimary,
                       ),
                     ),
-                    TextButton(
-                      onPressed: () {
-                      Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (ctx) => const AllBusinessesPage(),
-                          ),
-                        );
-                      },
-                      child: const Text('See all', style: TextStyle(fontWeight: FontWeight.w600)),
-                    ),
+                    const SizedBox(height: 16),
+                    ..._buildBusinessTypeDistribution(admin.allBusinesses),
                   ],
-                ),
-                const SizedBox(height: 12),
-
-                // Activity List - Show filtered businesses from admin.allBusinesses
-                if (admin.allBusinesses.isNotEmpty)
-                  ..._getFilteredBusinesses(admin.allBusinesses)
-                      .take(3)
-                      .map((business) {
-                    final businessName = business['name'] ?? 'Unknown Business';
-                    final ownerName = business['email'] ?? 'Unknown Owner';
-                    final businessType = business['businessType'] ?? 'General';
-                    final isActive = business['isActive'] ?? true;
-                    final createdAt = business['createdAt'];
-
-                    String timeAgo = 'Recently';
-                    if (createdAt != null) {
-                      try {
-                        DateTime? date;
-                        if (createdAt is Timestamp) {
-                          date = createdAt.toDate();
-                        } else if (createdAt is DateTime) {
-                          date = createdAt;
-                        } else {
-                          date = DateTime.tryParse(createdAt.toString());
-                        }
-                        if (date != null) {
-                          final now = DateTime.now();
-                          final diff = now.difference(date);
-                          if (diff.inHours < 1) {
-                            timeAgo = '${diff.inMinutes}m ago';
-                          } else if (diff.inHours < 24) {
-                            timeAgo = '${diff.inHours}h ago';
-                          } else {
-                            timeAgo = '${diff.inDays}d ago';
-                          }
-                        }
-                      } catch (e) {
-                        timeAgo = 'Recently';
-                      }
-                    }
-
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: GestureDetector(
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (ctx) =>
-                                  BusinessDetailPage(business: business),
-                            ),
-                          );
-                        },
-                        child: _buildActivityCard(
-                          businessName,
-                          ownerName,
-                          businessType,
-                          timeAgo,
-                          _getColorForBusinessType(businessType),
-                          isActive,
-                        ),
-                      ),
-                    );
-                  })
-                else
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 20),
-                    child: Center(
-                      child: Text(
-                        'No businesses yet',
-                        style: TextStyle(color: context.adminTextSecondary),
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 28),
-
-                // Tier Distribution
-                Text(
-                  'Business Type Distribution',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: context.adminTextPrimary,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                ..._buildBusinessTypeDistribution(admin.allBusinesses),
-              ],
-            );
-          },
-        ),
-      ),
-    )));
+                );
+              },
+            ),
+          ),
+        )));
   }
 
   Widget _buildStatCard(
-      String title,
-      String value,
-      IconData icon,
-      Color color,
-      String badge, {
-      VoidCallback? onTap,
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+    String badge, {
+    VoidCallback? onTap,
   }) {
     return GestureDetector(
       onTap: onTap,
@@ -859,7 +875,8 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
                     color: badge == 'Live'
                         ? const Color(0xFF10B981).withOpacity(0.1)
@@ -1083,7 +1100,9 @@ class _DashboardPageState extends State<DashboardPage> {
                 time,
                 style: TextStyle(
                   fontSize: 12,
-                  color: isOnline ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                  color: isOnline
+                      ? const Color(0xFF10B981)
+                      : const Color(0xFF94A3B8),
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -1236,7 +1255,8 @@ class _BusinessesPageStateful extends StatefulWidget {
   const _BusinessesPageStateful();
 
   @override
-  State<_BusinessesPageStateful> createState() => __BusinessesPageStatefulState();
+  State<_BusinessesPageStateful> createState() =>
+      __BusinessesPageStatefulState();
 }
 
 class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
@@ -1255,180 +1275,191 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
     super.dispose();
   }
 
-  List<Map<String, dynamic>> _getFilteredBusinesses(List<Map<String, dynamic>> businesses) {
+  List<Map<String, dynamic>> _getFilteredBusinesses(
+      List<Map<String, dynamic>> businesses) {
     if (_searchQuery.isEmpty) return businesses;
     return businesses.where((business) {
       final name = business['name']?.toString().toLowerCase() ?? '';
       final owner = business['email']?.toString().toLowerCase() ?? '';
       final type = business['businessType']?.toString().toLowerCase() ?? '';
-      return name.contains(_searchQuery) || owner.contains(_searchQuery) || type.contains(_searchQuery);
+      return name.contains(_searchQuery) ||
+          owner.contains(_searchQuery) ||
+          type.contains(_searchQuery);
     }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: context.adminBackground,
-      child: SafeArea(
-        child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: context.adminSurface,
-              borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(30),
-                bottomRight: Radius.circular(30),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(context.isAdminDark ? 0.22 : 0.08),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Consumer<AdminProvider>(
-              builder: (context, admin, _) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'All Businesses',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        color: context.adminTextPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${admin.allBusinesses.length} registered businesses',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: context.adminTextSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _searchController,
-                      onChanged: (v) => setState(() => _searchQuery = v.toLowerCase()),
-                        decoration: InputDecoration(
-                        prefixIcon: Icon(
-                          Icons.search_rounded,
-                          color: context.adminTextTertiary,
-                        ),
-                        hintText: 'Search businesses...',
-                        hintStyle:
-                            TextStyle(color: context.adminTextTertiary),
-                        filled: true,
-                        fillColor: context.adminSurfaceAlt,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: [
-                        _buildBusinessesSummaryChip(
-                          'Active',
-                          admin.activeBusinessesCount.toString(),
-                          const Color(0xFF10B981),
-                        ),
-                        _buildBusinessesSummaryChip(
-                          'Restricted',
-                          admin.restrictedBusinessesCount.toString(),
-                          const Color(0xFFEF4444),
-                        ),
-                        _buildBusinessesSummaryChip(
-                          'Live Plans',
-                          admin.activeSubscriptionsCount.toString(),
-                          const Color(0xFF8B5CF6),
-                        ),
-                      ],
+        color: context.adminBackground,
+        child: SafeArea(
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: context.adminSurface,
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(30),
+                    bottomRight: Radius.circular(30),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black
+                          .withOpacity(context.isAdminDark ? 0.22 : 0.08),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
                     ),
                   ],
-                );
-              },
-            ),
-          ),
-          Expanded(
-            child: Consumer<AdminProvider>(
-              builder: (context, admin, _) {
-                if (admin.isLoading) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                if (admin.allBusinesses.isEmpty) {
-                  if (admin.allBusinesses.isEmpty && !admin.isLoading) {
-                    // Defer the fetch to next frame to avoid calling during build
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      admin.fetchAdminStats();
-                    });
-                  }
-                  return Center(
-                        child: Text(
-                      'No businesses found',
-                      style: TextStyle(color: context.adminTextSecondary),
-                    ),
-                  );
-                }
-
-                final filtered = _getFilteredBusinesses(admin.allBusinesses);
-
-                return RefreshIndicator(
-                  onRefresh: () => admin.fetchAdminStats(force: true),
-                  child: ListView(
-                    padding: const EdgeInsets.all(20),
-                    children: filtered.map((business) {
-                    // Convert Timestamp to String if needed
-                    String updatedAtStr = 'Recently';
-                    if (business['updatedAt'] != null) {
-                      if (business['updatedAt'] is Timestamp) {
-                        final date =
-                            (business['updatedAt'] as Timestamp).toDate();
-                        updatedAtStr = '${date.month}/${date.day}/${date.year}';
-                      } else {
-                        updatedAtStr = business['updatedAt'].toString();
-                      }
-                    }
-
-                    // Get subscription tier for pricing
-                    final subscriptionTier = business['subscriptionTier']
-                            ?.toString()
-                            .toLowerCase() ??
-                        'basic';
-                    final subscriptionPricing = {
-                      'basic': '₦10,000',
-                      'pro': '₦20,000',
-                      'enterprise': '₦100,000',
-                    };
-
+                ),
+                child: Consumer<AdminProvider>(
+                  builder: (context, admin, _) {
                     return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildBusinessCard(
-                          context,
-                          business['name'] ?? 'Unknown',
-                          business['ownerName'] ?? 'Unknown',
-                          subscriptionTier,
-                          business['totalWorkers'] ?? 0,
-                          updatedAtStr,
-                          business['isActive'] ?? true,
-                          subscriptionPricing[subscriptionTier] ?? '₦10,000',
-                          business,
+                        Text(
+                          'All Businesses',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w800,
+                            color: context.adminTextPrimary,
+                          ),
                         ),
-                        
+                        const SizedBox(height: 4),
+                        Text(
+                          '${admin.allBusinesses.length} registered businesses',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: context.adminTextSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _searchController,
+                          onChanged: (v) =>
+                              setState(() => _searchQuery = v.toLowerCase()),
+                          decoration: InputDecoration(
+                            prefixIcon: Icon(
+                              Icons.search_rounded,
+                              color: context.adminTextTertiary,
+                            ),
+                            hintText: 'Search businesses...',
+                            hintStyle:
+                                TextStyle(color: context.adminTextTertiary),
+                            filled: true,
+                            fillColor: context.adminSurfaceAlt,
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide.none),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            _buildBusinessesSummaryChip(
+                              'Active',
+                              admin.activeBusinessesCount.toString(),
+                              const Color(0xFF10B981),
+                            ),
+                            _buildBusinessesSummaryChip(
+                              'Restricted',
+                              admin.restrictedBusinessesCount.toString(),
+                              const Color(0xFFEF4444),
+                            ),
+                            _buildBusinessesSummaryChip(
+                              'Live Plans',
+                              admin.activeSubscriptionsCount.toString(),
+                              const Color(0xFF8B5CF6),
+                            ),
+                          ],
+                        ),
                       ],
                     );
-                  }).toList(),
-                ));
-              },
-            ),
+                  },
+                ),
+              ),
+              Expanded(
+                child: Consumer<AdminProvider>(
+                  builder: (context, admin, _) {
+                    if (admin.isLoading) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    if (admin.allBusinesses.isEmpty) {
+                      if (admin.allBusinesses.isEmpty && !admin.isLoading) {
+                        // Defer the fetch to next frame to avoid calling during build
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          admin.fetchAdminStats();
+                        });
+                      }
+                      return Center(
+                        child: Text(
+                          'No businesses found',
+                          style: TextStyle(color: context.adminTextSecondary),
+                        ),
+                      );
+                    }
+
+                    final filtered =
+                        _getFilteredBusinesses(admin.allBusinesses);
+
+                    return RefreshIndicator(
+                        onRefresh: () => admin.fetchAdminStats(force: true),
+                        child: ListView(
+                          padding: const EdgeInsets.all(20),
+                          children: filtered.map((business) {
+                            // Convert Timestamp to String if needed
+                            String updatedAtStr = 'Recently';
+                            if (business['updatedAt'] != null) {
+                              if (business['updatedAt'] is Timestamp) {
+                                final date =
+                                    (business['updatedAt'] as Timestamp)
+                                        .toDate();
+                                updatedAtStr =
+                                    '${date.month}/${date.day}/${date.year}';
+                              } else {
+                                updatedAtStr = business['updatedAt'].toString();
+                              }
+                            }
+
+                            // Get subscription tier for pricing
+                            final subscriptionTier =
+                                business['subscriptionTier']
+                                        ?.toString()
+                                        .toLowerCase() ??
+                                    'basic';
+                            final subscriptionPricing = {
+                              'basic': '₦10,000',
+                              'pro': '₦20,000',
+                              'enterprise': '₦100,000',
+                            };
+
+                            return Column(
+                              children: [
+                                _buildBusinessCard(
+                                  context,
+                                  business['name'] ?? 'Unknown',
+                                  business['ownerName'] ?? 'Unknown',
+                                  subscriptionTier,
+                                  business['totalWorkers'] ?? 0,
+                                  updatedAtStr,
+                                  business['isActive'] ?? true,
+                                  subscriptionPricing[subscriptionTier] ??
+                                      '₦10,000',
+                                  business,
+                                ),
+                              ],
+                            );
+                          }).toList(),
+                        ));
+                  },
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
-    ));
+        ));
   }
 
   Widget _buildBusinessesSummaryChip(String label, String value, Color color) {
@@ -1479,8 +1510,10 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
                 Text('Type: ${business['businessType'] ?? '-'}'),
                 Text('Address: ${business['address'] ?? '-'}'),
                 Text('Tier: ${business['subscriptionTier'] ?? '-'}'),
-                Text('Subscription Status: ${business['subscriptionStatus'] ?? business['subscriptionReviewStatus'] ?? 'n/a'}'),
-                Text('Restricted: ${business['isRestricted'] == true ? 'Yes' : 'No'}'),
+                Text(
+                    'Subscription Status: ${business['subscriptionStatus'] ?? business['subscriptionReviewStatus'] ?? 'n/a'}'),
+                Text(
+                    'Restricted: ${business['isRestricted'] == true ? 'Yes' : 'No'}'),
                 if ((business['restrictionReason'] ?? '').toString().isNotEmpty)
                   Text('Restriction Reason: ${business['restrictionReason']}'),
                 Text('Active: ${business['isActive'] ?? true}'),
@@ -1527,7 +1560,8 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
       tier = 'basic';
     }
     // Business class (new): tier1, tier2, tier3
-    String selectedClass = business['businessClass']?.toString().toLowerCase() ?? 'tier1';
+    String selectedClass =
+        business['businessClass']?.toString().toLowerCase() ?? 'tier1';
     bool isActive = business['isActive'] ?? true;
 
     showDialog<void>(
@@ -1575,11 +1609,15 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
                   DropdownButtonFormField<String>(
                     initialValue: selectedClass,
                     items: const [
-                      DropdownMenuItem(value: 'tier1', child: Text('Tier1 (Basic only)')),
-                      DropdownMenuItem(value: 'tier2', child: Text('Tier2 (Basic & Pro)')),
-                      DropdownMenuItem(value: 'tier3', child: Text('Tier3 (Basic & Pro)')),
+                      DropdownMenuItem(
+                          value: 'tier1', child: Text('Tier1 (Basic only)')),
+                      DropdownMenuItem(
+                          value: 'tier2', child: Text('Tier2 (Basic & Pro)')),
+                      DropdownMenuItem(
+                          value: 'tier3', child: Text('Tier3 (Basic & Pro)')),
                     ],
-                    onChanged: (v) => setState(() => selectedClass = v ?? 'tier1'),
+                    onChanged: (v) =>
+                        setState(() => selectedClass = v ?? 'tier1'),
                     decoration:
                         const InputDecoration(labelText: 'Business Class'),
                   ),
@@ -1713,8 +1751,9 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
               );
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor:
-                  isRestricted ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+              backgroundColor: isRestricted
+                  ? const Color(0xFF10B981)
+                  : const Color(0xFFEF4444),
             ),
             child: Text(isRestricted ? 'Restore' : 'Restrict'),
           ),
@@ -2219,8 +2258,10 @@ class _SettingsPageState extends State<SettingsPage> {
                       return ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: CircleAvatar(
-                          backgroundColor:
-                              Theme.of(context).colorScheme.primary.withOpacity(0.12),
+                          backgroundColor: Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withOpacity(0.12),
                           child: Text(
                             (user['name']?.toString().isNotEmpty ?? false)
                                 ? user['name'].toString()[0].toUpperCase()
@@ -2296,267 +2337,292 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
     return ColoredBox(
-      color: context.adminBackground,
-      child: SafeArea(
-        child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Settings',
-              style: TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.w800,
-                color: context.adminTextPrimary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Platform administration and communication tools',
-              style: TextStyle(color: context.adminTextSecondary),
-            ),
-            const SizedBox(height: 20),
-
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: context.adminCardDecoration(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Icon(
-                      themeProvider.isDarkMode
-                          ? Icons.dark_mode_rounded
-                          : Icons.light_mode_rounded,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
+        color: context.adminBackground,
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Settings',
+                  style: TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                    color: context.adminTextPrimary,
                   ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Dark Mode',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: context.adminTextPrimary,
-                          ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Platform administration and communication tools',
+                  style: TextStyle(color: context.adminTextSecondary),
+                ),
+                const SizedBox(height: 20),
+
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: context.adminCardDecoration(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(14),
                         ),
-                        const SizedBox(height: 4),
-                        Text(
+                        child: Icon(
                           themeProvider.isDarkMode
-                              ? 'Admin screens use the dark appearance'
-                              : 'Admin screens use the light appearance',
-                          style: TextStyle(color: context.adminTextSecondary),
+                              ? Icons.dark_mode_rounded
+                              : Icons.light_mode_rounded,
+                          color: Theme.of(context).colorScheme.primary,
                         ),
-                      ],
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Dark Mode',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: context.adminTextPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              themeProvider.isDarkMode
+                                  ? 'Admin screens use the dark appearance'
+                                  : 'Admin screens use the light appearance',
+                              style:
+                                  TextStyle(color: context.adminTextSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch.adaptive(
+                        value: themeProvider.isDarkMode,
+                        onChanged: themeProvider.setDarkMode,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // Admin Communication
+                Text(
+                  'Admin Communications',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: context.adminTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                    controller: _notificationTitleController,
+                    decoration:
+                        const InputDecoration(labelText: 'Notification Title')),
+                const SizedBox(height: 8),
+                TextField(
+                    controller: _notificationBodyController,
+                    decoration:
+                        const InputDecoration(labelText: 'Notification Body'),
+                    maxLines: 3),
+                const SizedBox(height: 8),
+                ElevatedButton.icon(
+                  onPressed: _isSending ? null : _sendBroadcastNotification,
+                  icon: const Icon(Icons.notifications),
+                  label: Text(
+                      _isSending ? 'Sending...' : 'Send Notification to all'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF3B82F6),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed:
+                      _isSending ? null : _showSpecificUserNotificationPicker,
+                  icon: const Icon(Icons.person_pin_circle_outlined),
+                  label: const Text('Send Notification to Specific User'),
+                ),
+                const SizedBox(height: 20),
+                TextField(
+                    controller: _emailSubjectController,
+                    decoration:
+                        const InputDecoration(labelText: 'Email Subject')),
+                const SizedBox(height: 8),
+                TextField(
+                    controller: _emailBodyController,
+                    decoration: const InputDecoration(labelText: 'Email Body'),
+                    maxLines: 4),
+                const SizedBox(height: 8),
+                ElevatedButton.icon(
+                  onPressed: _isSending ? null : _sendBroadcastEmail,
+                  icon: const Icon(Icons.email),
+                  label: Text(_isSending ? 'Sending...' : 'Send Email to all'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF3B82F6),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                Text(
+                  'Restricted Account Support',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: context.adminTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _customerCareWhatsappController,
+                  decoration: const InputDecoration(
+                    labelText: 'Customer care WhatsApp',
+                    hintText: '+2348063124936',
+                    helperText:
+                        'Shown to restricted businesses so they know who to contact.',
+                  ),
+                  keyboardType: TextInputType.phone,
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () => _saveAdminSettings({
+                    'customerCareWhatsapp':
+                        _customerCareWhatsappController.text.trim(),
+                  }),
+                  icon: const Icon(Icons.save_outlined),
+                  label: const Text('Save support contact'),
+                ),
+                const SizedBox(height: 24),
+
+                // Existing settings (kept simple)
+                _buildSettingItem(
+                    Icons.notifications_rounded,
+                    'Notifications',
+                    _pushNotificationsEnabled
+                        ? 'Push notifications enabled'
+                        : 'Push notifications disabled',
+                    const Color(0xFF3B82F6),
+                    onTap: () => _showNotificationSettingsDialog(context)),
+                _buildSettingItem(
+                    Icons.security_rounded,
+                    'Security',
+                    _twoFactorEnabled
+                        ? 'Two-factor authentication enabled'
+                        : 'Two-factor authentication disabled',
+                    const Color(0xFF10B981),
+                    onTap: () => _showSecurityDialog(context)),
+                _buildSettingItem(
+                    Icons.language_rounded,
+                    'Language',
+                    _selectedLanguage == 'en' ? 'English (US)' : 'Spanish',
+                    const Color(0xFF8B5CF6),
+                    onTap: () => _showLanguageDialog(context)),
+                const SizedBox(height: 24),
+
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      try {
+                        await context.read<AuthProvider>().logout();
+                        if (context.mounted) {
+                          Navigator.of(context)
+                              .pushReplacementNamed(Routes.login);
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Logout failed: $e')),
+                          );
+                        }
+                      }
+                    },
+                    icon: const Icon(Icons.logout_rounded),
+                    label: const Text('Logout'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFEF4444),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      elevation: 0,
                     ),
                   ),
-                  Switch.adaptive(
-                    value: themeProvider.isDarkMode,
-                    onChanged: themeProvider.setDarkMode,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Admin Communication
-            Text(
-              'Admin Communications',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: context.adminTextPrimary,
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-                controller: _notificationTitleController,
-                decoration:
-                    const InputDecoration(labelText: 'Notification Title')),
-            const SizedBox(height: 8),
-            TextField(
-                controller: _notificationBodyController,
-                decoration:
-                    const InputDecoration(labelText: 'Notification Body'),
-                maxLines: 3),
-            const SizedBox(height: 8),
-            ElevatedButton.icon(
-                onPressed: _isSending ? null : _sendBroadcastNotification,
-                icon: const Icon(Icons.notifications),
-                label: Text(
-                    _isSending ? 'Sending...' : 'Send Notification to all'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF3B82F6),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
+              ],
             ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: _isSending ? null : _showSpecificUserNotificationPicker,
-              icon: const Icon(Icons.person_pin_circle_outlined),
-              label: const Text('Send Notification to Specific User'),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-                controller: _emailSubjectController,
-                decoration: const InputDecoration(labelText: 'Email Subject')),
-            const SizedBox(height: 8),
-            TextField(
-                controller: _emailBodyController,
-                decoration: const InputDecoration(labelText: 'Email Body'),
-                maxLines: 4),
-            const SizedBox(height: 8),
-            ElevatedButton.icon(
-                onPressed: _isSending ? null : _sendBroadcastEmail,
-                icon: const Icon(Icons.email),
-                label: Text(_isSending ? 'Sending...' : 'Send Email to all'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF3B82F6),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-            ),
-            const SizedBox(height: 24),
-
-            Text(
-              'Restricted Account Support',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: context.adminTextPrimary,
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _customerCareWhatsappController,
-              decoration: const InputDecoration(
-                labelText: 'Customer care WhatsApp',
-                hintText: '+2348063124936',
-                helperText:
-                    'Shown to restricted businesses so they know who to contact.',
-              ),
-              keyboardType: TextInputType.phone,
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: () => _saveAdminSettings({
-                'customerCareWhatsapp':
-                    _customerCareWhatsappController.text.trim(),
-              }),
-              icon: const Icon(Icons.save_outlined),
-              label: const Text('Save support contact'),
-            ),
-            const SizedBox(height: 24),
-
-            // Existing settings (kept simple)
-            _buildSettingItem(Icons.notifications_rounded, 'Notifications',
-              _pushNotificationsEnabled ? 'Push notifications enabled' : 'Push notifications disabled', const Color(0xFF3B82F6), onTap: () => _showNotificationSettingsDialog(context)),
-            _buildSettingItem(Icons.security_rounded, 'Security',
-              _twoFactorEnabled ? 'Two-factor authentication enabled' : 'Two-factor authentication disabled', const Color(0xFF10B981), onTap: () => _showSecurityDialog(context)),
-            _buildSettingItem(Icons.language_rounded, 'Language',
-              _selectedLanguage == 'en' ? 'English (US)' : 'Spanish', const Color(0xFF8B5CF6), onTap: () => _showLanguageDialog(context)),
-            const SizedBox(height: 24),
-
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () async {
-                  try {
-                    await context.read<AuthProvider>().logout();
-                    if (context.mounted) {
-                      Navigator.of(context).pushReplacementNamed(Routes.login);
-                    }
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Logout failed: $e')),
-                      );
-                    }
-                  }
-                },
-                icon: const Icon(Icons.logout_rounded),
-                label: const Text('Logout'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFEF4444),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  elevation: 0,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    ));
+          ),
+        ));
   }
 
   Widget _buildSettingItem(
       IconData icon, String title, String subtitle, Color color,
       {VoidCallback? onTap}) {
     return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: context.adminCardDecoration(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: color, size: 24),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(16),
+          decoration: context.adminCardDecoration(
+            borderRadius: BorderRadius.circular(16),
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: context.adminTextPrimary,
-                  ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: context.adminTextSecondary,
-                  ),
+                child: Icon(icon, color: color, size: 24),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: context.adminTextPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: context.adminTextSecondary,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              Icon(Icons.chevron_right, color: Colors.grey[400]),
+            ],
           ),
-          Icon(Icons.chevron_right, color: Colors.grey[400]),
-        ],
-      ),
-    ));
+        ));
   }
 
   void _showNotificationSettingsDialog(BuildContext context) {
@@ -2573,7 +2639,9 @@ class _SettingsPageState extends State<SettingsPage> {
           );
         }),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel')),
           ElevatedButton(
               onPressed: () async {
                 setState(() => _pushNotificationsEnabled = enabled);
@@ -2597,13 +2665,16 @@ class _SettingsPageState extends State<SettingsPage> {
         content: StatefulBuilder(
           builder: (ctx, setStateDialog) => SwitchListTile(
             title: const Text('Enable two-factor authentication'),
-            subtitle: const Text('Require an extra verification step for admin access.'),
+            subtitle: const Text(
+                'Require an extra verification step for admin access.'),
             value: enabled,
             onChanged: (value) => setStateDialog(() => enabled = value),
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Close')),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Close')),
           ElevatedButton(
               onPressed: () async {
                 setState(() => _twoFactorEnabled = enabled);
@@ -2644,7 +2715,9 @@ class _SettingsPageState extends State<SettingsPage> {
           );
         }),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel')),
           ElevatedButton(
               onPressed: () async {
                 setState(() => _selectedLanguage = lang);
@@ -2670,184 +2743,202 @@ class UsersAndWorkersPage extends StatefulWidget {
 
 class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
   String _searchQuery = '';
-  String _filterType = 'all'; // all, users, workers
+  String _filterType = 'all'; // all, users, workers, archived
 
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: context.adminBackground,
-      child: SafeArea(
-        child: Column(
-        children: [
-          // Header
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: context.adminSurface,
-              borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(30),
-                bottomRight: Radius.circular(30),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(context.isAdminDark ? 0.22 : 0.08),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Users & Workers',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w800,
-                    color: context.adminTextPrimary,
+        color: context.adminBackground,
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Header
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: context.adminSurface,
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(30),
+                    bottomRight: Radius.circular(30),
                   ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black
+                          .withOpacity(context.isAdminDark ? 0.22 : 0.08),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                Consumer<AdminProvider>(
-                  builder: (context, admin, _) {
-                    return Text(
-                      '${admin.allUsers.length} unique records across ${admin.usersTableCount} users and ${admin.workersTableCount} workers rows',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Users & Workers',
                       style: TextStyle(
-                        fontSize: 14,
-                        color: context.adminTextSecondary,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        color: context.adminTextPrimary,
                       ),
+                    ),
+                    const SizedBox(height: 4),
+                    Consumer<AdminProvider>(
+                      builder: (context, admin, _) {
+                        return Text(
+                          '${admin.allUsers.length} unique records across ${admin.usersTableCount} users and ${admin.workersTableCount} workers rows',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: context.adminTextSecondary,
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    // Search Field
+                    TextField(
+                      decoration: InputDecoration(
+                        hintText: 'Search by name or email...',
+                        prefixIcon: Icon(Icons.search,
+                            color: context.adminTextSecondary),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: context.adminBorder),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: context.adminBorder),
+                        ),
+                      ),
+                      onChanged: (value) =>
+                          setState(() => _searchQuery = value),
+                    ),
+                    const SizedBox(height: 16),
+                    // Filter Buttons
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _buildFilterButton('All', 'all'),
+                          const SizedBox(width: 8),
+                          _buildFilterButton('Users', 'users'),
+                          const SizedBox(width: 8),
+                          _buildFilterButton('Workers', 'workers'),
+                          const SizedBox(width: 8),
+                          _buildFilterButton('Archived', 'archived'),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Consumer<AdminProvider>(
+                      builder: (context, admin, _) => Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          _buildHeaderChip(
+                            label: 'Payment Issues',
+                            value: admin.pendingSubscriptionApprovalsCount
+                                .toString(),
+                            color: const Color(0xFFF97316),
+                          ),
+                          _buildHeaderChip(
+                            label: 'Restricted Businesses',
+                            value: admin.restrictedBusinessesCount.toString(),
+                            color: const Color(0xFFEF4444),
+                          ),
+                          _buildHeaderChip(
+                            label: 'Active Businesses',
+                            value: admin.activeBusinessesCount.toString(),
+                            color: const Color(0xFF10B981),
+                          ),
+                          _buildHeaderChip(
+                            label: 'Users Table',
+                            value: admin.usersTableCount.toString(),
+                            color: const Color(0xFF2563EB),
+                          ),
+                          _buildHeaderChip(
+                            label: 'Workers Table',
+                            value: admin.workersTableCount.toString(),
+                            color: const Color(0xFF6B7280),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Users List
+              Expanded(
+                child: Consumer<AdminProvider>(
+                  builder: (context, admin, _) {
+                    if (admin.isLoading) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    // Filter users based on search and type
+                    List<Map<String, dynamic>> filteredUsers =
+                        admin.allUsers.where((user) {
+                      final matchesSearch = _searchQuery.isEmpty ||
+                          (user['name']?.toString() ?? '')
+                              .toLowerCase()
+                              .contains(_searchQuery.toLowerCase()) ||
+                          (user['email']?.toString() ?? '')
+                              .toLowerCase()
+                              .contains(_searchQuery.toLowerCase());
+
+                      final isWorker = user['isWorker'] == true ||
+                          user['role'] == 'worker' ||
+                          user['type'] == 'worker';
+                      final isArchived = user['isDeleted'] == true ||
+                          user['isActive'] == false ||
+                          (user['deletedAt'] != null &&
+                              user['deletedAt'].toString().isNotEmpty);
+                      final matchesType = _filterType == 'all'
+                          ? !isArchived
+                          : _filterType == 'archived'
+                              ? isArchived
+                              : (_filterType == 'workers' && isWorker) ||
+                                  (_filterType == 'users' && !isWorker);
+
+                      return matchesSearch && matchesType;
+                    }).toList();
+
+                    if (filteredUsers.isEmpty) {
+                      return Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.people_outline,
+                              size: 64,
+                              color: Colors.grey[300],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'No users found',
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: context.adminTextSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    return ListView.builder(
+                      padding: const EdgeInsets.all(20),
+                      itemCount: filteredUsers.length,
+                      itemBuilder: (context, index) {
+                        final user = filteredUsers[index];
+                        return _buildUserCard(context, user);
+                      },
                     );
                   },
                 ),
-                const SizedBox(height: 16),
-                // Search Field
-                TextField(
-                  decoration: InputDecoration(
-                    hintText: 'Search by name or email...',
-                    prefixIcon: Icon(Icons.search, color: context.adminTextSecondary),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: context.adminBorder),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: context.adminBorder),
-                    ),
-                  ),
-                  onChanged: (value) => setState(() => _searchQuery = value),
-                ),
-                const SizedBox(height: 16),
-                // Filter Buttons
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _buildFilterButton('All', 'all'),
-                      const SizedBox(width: 8),
-                      _buildFilterButton('Users', 'users'),
-                      const SizedBox(width: 8),
-                      _buildFilterButton('Workers', 'workers'),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Consumer<AdminProvider>(
-                  builder: (context, admin, _) => Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      _buildHeaderChip(
-                        label: 'Payment Issues',
-                        value: admin.pendingSubscriptionApprovalsCount.toString(),
-                        color: const Color(0xFFF97316),
-                      ),
-                      _buildHeaderChip(
-                        label: 'Restricted Businesses',
-                        value: admin.restrictedBusinessesCount.toString(),
-                        color: const Color(0xFFEF4444),
-                      ),
-                      _buildHeaderChip(
-                        label: 'Active Businesses',
-                        value: admin.activeBusinessesCount.toString(),
-                        color: const Color(0xFF10B981),
-                      ),
-                      _buildHeaderChip(
-                        label: 'Users Table',
-                        value: admin.usersTableCount.toString(),
-                        color: const Color(0xFF2563EB),
-                      ),
-                      _buildHeaderChip(
-                        label: 'Workers Table',
-                        value: admin.workersTableCount.toString(),
-                        color: const Color(0xFF6B7280),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-          // Users List
-          Expanded(
-            child: Consumer<AdminProvider>(
-              builder: (context, admin, _) {
-                if (admin.isLoading) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                // Filter users based on search and type
-                List<Map<String, dynamic>> filteredUsers = admin.allUsers.where((user) {
-                  final matchesSearch = _searchQuery.isEmpty ||
-                      (user['name']?.toString() ?? '').toLowerCase().contains(_searchQuery.toLowerCase()) ||
-                      (user['email']?.toString() ?? '').toLowerCase().contains(_searchQuery.toLowerCase());
-
-                  final isWorker = user['isWorker'] == true ||
-                      user['role'] == 'worker' ||
-                      user['type'] == 'worker';
-                  final matchesType = _filterType == 'all' ||
-                      (_filterType == 'workers' && isWorker) ||
-                      (_filterType == 'users' && !isWorker);
-
-                  return matchesSearch && matchesType;
-                }).toList();
-
-                if (filteredUsers.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.people_outline,
-                          size: 64,
-                          color: Colors.grey[300],
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'No users found',
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: context.adminTextSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
-                return ListView.builder(
-                  padding: const EdgeInsets.all(20),
-                  itemCount: filteredUsers.length,
-                  itemBuilder: (context, index) {
-                    final user = filteredUsers[index];
-                    return _buildUserCard(context, user);
-                  },
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    ));
+        ));
   }
 
   Widget _buildFilterButton(String label, String value) {
@@ -2858,8 +2949,7 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
         backgroundColor: isSelected
             ? Theme.of(context).colorScheme.primary
             : context.adminSurfaceAlt,
-        foregroundColor:
-            isSelected ? Colors.white : context.adminTextSecondary,
+        foregroundColor: isSelected ? Colors.white : context.adminTextSecondary,
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
@@ -2905,15 +2995,18 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
     final isWorker = user['isWorker'] == true ||
         user['role'] == 'worker' ||
         user['type'] == 'worker';
-    final isDeleted = user['isDeleted'] == true;
-    final businessName = (user['businessName'] ?? user['businessId'] ?? 'No business')
-        .toString();
+    final isDeleted = user['isDeleted'] == true ||
+        user['isActive'] == false ||
+        (user['deletedAt'] != null && user['deletedAt'].toString().isNotEmpty);
+    final businessName =
+        (user['businessName'] ?? user['businessId'] ?? 'No business')
+            .toString();
     final businessRestricted = user['businessRestricted'] == true;
     final tableSource = (user['tableSource'] ?? 'users').toString();
     // Handle isSubscriptionActive as either boolean or string
     final subscriptionValue = user['isSubscriptionActive'];
-    final hasActiveSubscription = subscriptionValue == true || 
-        subscriptionValue == 'true' || 
+    final hasActiveSubscription = subscriptionValue == true ||
+        subscriptionValue == 'true' ||
         subscriptionValue == 1;
 
     return Card(
@@ -2937,7 +3030,9 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                   width: 48,
                   height: 48,
                   decoration: BoxDecoration(
-                    color: isWorker ? const Color(0xFF6B7280) : const Color(0xFF3B82F6),
+                    color: isWorker
+                        ? const Color(0xFF6B7280)
+                        : const Color(0xFF3B82F6),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Center(
@@ -2974,7 +3069,8 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                           ),
                           const SizedBox(width: 8),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
                               color: isWorker
                                   ? const Color(0xFF6B7280).withOpacity(0.16)
@@ -3044,7 +3140,8 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
             // Subscription Status
             if (hasActiveSubscription)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: const Color(0xFF10B981).withOpacity(0.12),
                   borderRadius: BorderRadius.circular(6),
@@ -3052,7 +3149,8 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.check_circle, size: 14, color: Color(0xFF10B981)),
+                    const Icon(Icons.check_circle,
+                        size: 14, color: Color(0xFF10B981)),
                     const SizedBox(width: 6),
                     Text(
                       'Active - ${_getSubscriptionTier(user)}',
@@ -3067,7 +3165,8 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
               )
             else
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: const Color(0xFFEF4444).withOpacity(0.12),
                   borderRadius: BorderRadius.circular(6),
@@ -3075,7 +3174,8 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.hourglass_empty, size: 14, color: Color(0xFFEF4444)),
+                    const Icon(Icons.hourglass_empty,
+                        size: 14, color: Color(0xFFEF4444)),
                     const SizedBox(width: 6),
                     const Text(
                       'No Active Subscription',
@@ -3104,11 +3204,13 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                   width: 150,
                   child: OutlinedButton.icon(
                     onPressed: () => _showNotifyUserDialog(context, user),
-                    icon: const Icon(Icons.notifications_active_outlined, size: 16),
+                    icon: const Icon(Icons.notifications_active_outlined,
+                        size: 16),
                     label: const Text('Notify'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Theme.of(context).colorScheme.primary,
-                      side: BorderSide(color: Theme.of(context).colorScheme.primary),
+                      side: BorderSide(
+                          color: Theme.of(context).colorScheme.primary),
                     ),
                   ),
                 ),
@@ -3131,16 +3233,20 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                         ? null
                         : () => _showSubscriptionDialog(context, user),
                     icon: const Icon(Icons.card_giftcard, size: 16),
-                    label: Text(hasActiveSubscription ? 'Active' : 'Approve 1Y'),
+                    label:
+                        Text(hasActiveSubscription ? 'Active' : 'Approve 1Y'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          hasActiveSubscription ? Colors.grey[300] : const Color(0xFF10B981),
-                      foregroundColor:
-                          hasActiveSubscription ? Colors.grey[600] : Colors.white,
+                      backgroundColor: hasActiveSubscription
+                          ? Colors.grey[300]
+                          : const Color(0xFF10B981),
+                      foregroundColor: hasActiveSubscription
+                          ? Colors.grey[600]
+                          : Colors.white,
                     ),
                   ),
                 ),
-                if ((user['businessId'] ?? '').toString().isNotEmpty && !hasActiveSubscription)
+                if ((user['businessId'] ?? '').toString().isNotEmpty &&
+                    !hasActiveSubscription)
                   SizedBox(
                     width: 150,
                     child: OutlinedButton.icon(
@@ -3166,7 +3272,8 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                             : Icons.gpp_bad_rounded,
                         size: 16,
                       ),
-                      label: Text(businessRestricted ? 'Restore Biz' : 'Restrict Biz'),
+                      label: Text(
+                          businessRestricted ? 'Restore Biz' : 'Restrict Biz'),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: businessRestricted
                             ? const Color(0xFF10B981)
@@ -3266,9 +3373,13 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
               ),
               _buildDetailRow(
                 'Subscription',
-                user['isSubscriptionActive'] == true ? 'Active - ${_getSubscriptionTier(user)}' : 'Inactive',
+                user['isSubscriptionActive'] == true
+                    ? 'Active - ${_getSubscriptionTier(user)}'
+                    : 'Inactive',
               ),
-              if ((user['businessRestrictionReason'] ?? '').toString().isNotEmpty)
+              if ((user['businessRestrictionReason'] ?? '')
+                  .toString()
+                  .isNotEmpty)
                 _buildDetailRow(
                   'Restriction Reason',
                   user['businessRestrictionReason'].toString(),
@@ -3322,7 +3433,8 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
 
   void _showDeleteUserDialog(BuildContext context, Map<String, dynamic> user) {
     final userId = (user['id'] ?? '').toString();
-    final displayName = (user['name'] ?? user['email'] ?? 'this user').toString();
+    final displayName =
+        (user['name'] ?? user['email'] ?? 'this user').toString();
     if (userId.isEmpty) return;
 
     showDialog(
@@ -3343,12 +3455,14 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
               showDialog(
                 context: context,
                 barrierDismissible: false,
-                builder: (_) => const Center(child: CircularProgressIndicator()),
+                builder: (_) =>
+                    const Center(child: CircularProgressIndicator()),
               );
 
-              final ok = await context.read<AdminProvider>().deleteUserWithRecovery(
-                    userId,
-                  );
+              final ok =
+                  await context.read<AdminProvider>().deleteUserWithRecovery(
+                        userId,
+                      );
 
               if (!context.mounted) return;
               Navigator.of(context).pop();
@@ -3374,7 +3488,8 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
 
   void _showRestoreUserDialog(BuildContext context, Map<String, dynamic> user) {
     final userId = (user['id'] ?? '').toString();
-    final displayName = (user['name'] ?? user['email'] ?? 'this user').toString();
+    final displayName =
+        (user['name'] ?? user['email'] ?? 'this user').toString();
     if (userId.isEmpty) return;
 
     final withinRecoveryWindow = _hasActiveRecoveryWindow(user);
@@ -3475,10 +3590,10 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                     final ok = await context
                         .read<AdminProvider>()
                         .sendNotificationToUsers(
-                          title: titleController.text.trim(),
-                          body: bodyController.text.trim(),
-                          userIds: [recipientId],
-                        );
+                      title: titleController.text.trim(),
+                      body: bodyController.text.trim(),
+                      userIds: [recipientId],
+                    );
                     if (!context.mounted) return;
                     Navigator.of(ctx).pop();
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -3498,8 +3613,10 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
     );
   }
 
-  void _showSubscriptionDialog(BuildContext context, Map<String, dynamic> user) {
-    String selectedTier = user['subscriptionTier']?.toString().toLowerCase() ?? 'basic';
+  void _showSubscriptionDialog(
+      BuildContext context, Map<String, dynamic> user) {
+    String selectedTier =
+        user['subscriptionTier']?.toString().toLowerCase() ?? 'basic';
 
     showDialog(
       context: context,
@@ -3540,7 +3657,8 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                   value: 'enterprise',
                   groupValue: selectedTier,
                   title: const Text('Enterprise - ₦100,000/year'),
-                  onChanged: (v) => setState(() => selectedTier = v ?? 'enterprise'),
+                  onChanged: (v) =>
+                      setState(() => selectedTier = v ?? 'enterprise'),
                 ),
                 const SizedBox(height: 16),
                 Container(
@@ -3602,7 +3720,8 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Business: ${user['businessName'] ?? user['name'] ?? 'Unknown'}'),
+            Text(
+                'Business: ${user['businessName'] ?? user['name'] ?? 'Unknown'}'),
             const SizedBox(height: 12),
             TextField(
               controller: reasonController,
@@ -3626,10 +3745,13 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                 Navigator.of(ctx).pop();
                 return;
               }
-              final ok = await context.read<AdminProvider>().declineOneYearSubscription(
+              final ok = await context
+                  .read<AdminProvider>()
+                  .declineOneYearSubscription(
                     businessId: businessId,
                     businessName:
-                        (user['businessName'] ?? user['name'] ?? 'Unknown').toString(),
+                        (user['businessName'] ?? user['name'] ?? 'Unknown')
+                            .toString(),
                     reason: reasonController.text.trim(),
                   );
               if (!context.mounted) return;
@@ -3675,7 +3797,9 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(
-          businessRestricted ? 'Restore Business Access' : 'Restrict Business Access',
+          businessRestricted
+              ? 'Restore Business Access'
+              : 'Restrict Business Access',
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -3702,11 +3826,12 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
           ),
           ElevatedButton(
             onPressed: () async {
-              final ok = await context.read<AdminProvider>().setBusinessRestriction(
-                    businessId: businessId,
-                    restricted: !businessRestricted,
-                    reason: reasonController.text.trim(),
-                  );
+              final ok =
+                  await context.read<AdminProvider>().setBusinessRestriction(
+                        businessId: businessId,
+                        restricted: !businessRestricted,
+                        reason: reasonController.text.trim(),
+                      );
               if (!context.mounted) return;
               Navigator.of(ctx).pop();
               ScaffoldMessenger.of(context).showSnackBar(
@@ -3782,7 +3907,7 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
       );
 
       if (!mounted) return;
-      
+
       // Close loading dialog
       try {
         navigator.pop();
@@ -3792,16 +3917,17 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
 
       if (success) {
         if (!mounted) return;
-        
+
         // Show success message
         messenger.showSnackBar(
           SnackBar(
-            content: Text('✓ ${user['name']} approved for ${tier.toUpperCase()} subscription (1 year)'),
+            content: Text(
+                '✓ ${user['name']} approved for ${tier.toUpperCase()} subscription (1 year)'),
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 3),
           ),
         );
-        
+
         // Don't call fetchAdminStats() - it causes cascade of other fetches
         // The local cache was already updated in approveOneYearSubscription()
         // Consumer will rebuild automatically when AdminProvider calls notifyListeners()
@@ -3809,21 +3935,22 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
         if (!mounted) return;
         messenger.showSnackBar(
           SnackBar(
-            content: Text('Error: ${admin.errorMessage ?? 'Failed to approve subscription'}'),
+            content: Text(
+                'Error: ${admin.errorMessage ?? 'Failed to approve subscription'}'),
             backgroundColor: Colors.red,
           ),
         );
       }
     } catch (e) {
       if (!mounted) return;
-      
+
       // Try to close loading dialog
       try {
         navigator.pop();
       } catch (_) {
         // Navigator might be in a different state
       }
-      
+
       messenger.showSnackBar(
         SnackBar(
           content: Text('Error: ${e.toString()}'),
@@ -3860,4 +3987,3 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
     );
   }
 }
-  

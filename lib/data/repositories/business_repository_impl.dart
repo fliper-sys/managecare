@@ -12,26 +12,13 @@ class BusinessRepository {
 
   Map<String, dynamic> _toPostgres(BusinessModel business) {
     return {
-      'id': business.id,
       'name': business.name,
-      'business_type': business.businessType,
-      'owner_id': business.ownerId,
       'address': business.address,
       'phone': business.phone,
-      'email': business.email,
-      'currency': business.currency ?? 'NGN',
+      'tax_id': business.taxId,
       'logo_url': business.logoUrl ?? business.photoUrl,
-      'subscription_tier': business.subscriptionTier,
-      'subscription_plan': business.subscriptionPlan,
-      'subscription_start_date':
-          business.subscriptionStartDate?.toIso8601String(),
-      'subscription_end_date': business.subscriptionEndDate?.toIso8601String(),
-      'is_subscription_active': business.isSubscriptionActive,
-      'is_active': business.isActive,
-      'created_at': business.createdAt.toIso8601String(),
       'updated_at': DateTime.now().toIso8601String(),
-      'settings': business.settings,
-    }..removeWhere((_, value) => value == null);
+    }..removeWhere((key, value) => value == null && key != 'logo_url');
   }
 
   BusinessModel _fromPostgres(Map<String, dynamic> data) {
@@ -66,7 +53,7 @@ class BusinessRepository {
       description: s('description'),
       ownerId: s('owner_id', 'ownerId') ?? '',
       logoUrl: s('logo_url', 'logoUrl'),
-      photoUrl: s('photo_url', 'photoUrl'),
+      photoUrl: s('photo_url', 'photoUrl') ?? s('logo_url', 'logoUrl'),
       currency: s('currency') ?? 'NGN',
       taxId: s('tax_id', 'taxId'),
       email: s('email'),
@@ -137,9 +124,12 @@ class BusinessRepository {
 
   Future<List<BusinessModel>> getUserBusinesses(String userId) async {
     try {
+      var lookupSucceeded = false;
+      Object? lastLookupError;
       try {
         final response = await ManagecareApiClient.instance.get('/api/businesses');
-        if (response is List && response.isNotEmpty) {
+        if (response is List) {
+          lookupSucceeded = true;
           final businesses = response
               .whereType<Map>()
               .map((row) => _fromPostgres(Map<String, dynamic>.from(row)))
@@ -152,6 +142,7 @@ class BusinessRepository {
           }
         }
       } catch (e) {
+        lastLookupError = e;
         debugPrint('[BusinessRepository] API business lookup failed: $e');
       }
 
@@ -162,6 +153,7 @@ class BusinessRepository {
             .select('businesses(*)')
             .eq('user_id', userId)
             .eq('is_active', true);
+        lookupSucceeded = true;
 
         for (final row in memberships) {
           final businessData = row['businesses'];
@@ -174,6 +166,7 @@ class BusinessRepository {
           }
         }
       } catch (e) {
+        lastLookupError ??= e;
         debugPrint('[BusinessRepository] Membership lookup failed: $e');
       }
 
@@ -183,13 +176,19 @@ class BusinessRepository {
             .select()
             .eq('owner_id', userId)
             .eq('is_active', true);
+        lookupSucceeded = true;
 
         for (final row in owned) {
           final business = _fromPostgres(Map<String, dynamic>.from(row));
           if (business.id.isNotEmpty) byId[business.id] = business;
         }
       } catch (e) {
+        lastLookupError ??= e;
         debugPrint('[BusinessRepository] Owned business lookup failed: $e');
+      }
+
+      if (!lookupSucceeded) {
+        throw Exception('All business lookups failed: $lastLookupError');
       }
 
       debugPrint(
@@ -229,10 +228,15 @@ class BusinessRepository {
 
   Future<void> updateBusiness(BusinessModel business) async {
     try {
-      await _supabase
+      final updated = await _supabase
           .from('businesses')
-          .update(_toPostgres(business)..remove('created_at'))
-          .eq('id', business.id);
+          .update(_toPostgres(business))
+          .eq('id', business.id)
+          .select('id')
+          .maybeSingle();
+      if (updated == null) {
+        throw StateError('The business was not updated. Check business access.');
+      }
     } catch (e) {
       debugPrint('[BusinessRepository] updateBusiness failed: $e');
       throw Exception('Failed to update business: $e');

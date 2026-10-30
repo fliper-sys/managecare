@@ -9,8 +9,10 @@ import '../data/repositories/apartment_repository_impl.dart';
 import '../data/repositories/worker_repository_impl.dart';
 import '../services/local_business_storage.dart';
 import '../services/local_user_storage.dart';
+import '../services/local_auth_cache.dart';
 import '../services/deletion_recovery_service_supabase.dart';
 import '../services/subscription_service.dart';
+import '../services/device_logger_service.dart';
 
 class BusinessProvider with ChangeNotifier {
   final BusinessRepository _repository;
@@ -18,6 +20,7 @@ class BusinessProvider with ChangeNotifier {
       DeletionRecoveryServiceSupabase();
   LocalBusinessStorage? _localStorage;
   LocalUserStorage? _localUserStorage;
+  final LocalAuthCache _localAuthCache = LocalAuthCache();
   Future<void>? _localStorageReady;
 
   BusinessModel? _currentBusiness;
@@ -88,10 +91,9 @@ class BusinessProvider with ChangeNotifier {
     // selection requested by the current auth profile. A newly reconciled
     // membership must bypass this guard even if older businesses are cached.
     final cachedBusinessIds = _userBusinesses.map((b) => b.id).toSet();
-    final requestedBusinessIds = userBusinessIds
-            ?.where((id) => id.trim().isNotEmpty)
-            .toSet() ??
-        const <String>{};
+    final requestedBusinessIds =
+        userBusinessIds?.where((id) => id.trim().isNotEmpty).toSet() ??
+            const <String>{};
     final missingRequestedBusiness =
         requestedBusinessIds.difference(cachedBusinessIds).isNotEmpty;
     final preferredBusinessMissing = preferredBusinessId != null &&
@@ -124,6 +126,10 @@ class BusinessProvider with ChangeNotifier {
       _errorMessage = null;
       _isUsingCachedData = false;
       _restoreCachedBusinessesForStartup();
+      DeviceLoggerService.capture(
+        'Business dashboard load started: cached businesses=${_userBusinesses.length}, '
+        'selected business=${_currentBusiness != null}',
+      );
       // DON'T notify yet - wait until data is loaded
 
       print('[BusinessProvider] 🔄 Loading businesses for user: $userId');
@@ -146,6 +152,10 @@ class BusinessProvider with ChangeNotifier {
       try {
         _userBusinesses = await _repository.getUserBusinesses(userId);
         _lastLoadTime = DateTime.now();
+        DeviceLoggerService.capture(
+          'Business dashboard fetch succeeded: businesses=${_userBusinesses.length}',
+          severity: 'SUCCESS',
+        );
         print(
             '[BusinessProvider] ✅ Loaded ${_userBusinesses.length} businesses from Firebase');
         if (_verboseLogging) {
@@ -159,6 +169,10 @@ class BusinessProvider with ChangeNotifier {
           print('[BusinessProvider] 💾 Cached businesses to local storage');
         }
       } catch (e) {
+        DeviceLoggerService.capture(
+          'Business dashboard fetch failed (${e.runtimeType}); trying local cache',
+          severity: 'WARNING',
+        );
         print('[BusinessProvider] ❌ Error loading from Firebase: $e');
 
         // Fallback to cached data if Firebase fails
@@ -167,6 +181,11 @@ class BusinessProvider with ChangeNotifier {
               '[BusinessProvider] Attempting to load cached businesses (offline mode)');
           _userBusinesses = _localStorage!.getCachedBusinesses();
           _isUsingCachedData = true;
+          DeviceLoggerService.capture(
+            'Business dashboard cache fallback: businesses=${_userBusinesses.length}, '
+            'selected business=${_currentBusiness != null}',
+            severity: _userBusinesses.isEmpty ? 'ERROR' : 'WARNING',
+          );
 
           if (_userBusinesses.isNotEmpty) {
             print(
@@ -360,11 +379,23 @@ class BusinessProvider with ChangeNotifier {
           '[BusinessProvider] ✅ Final current business: ${_currentBusiness?.id}');
       _isLoading = false;
       _isLoadingInProgress = false;
+      DeviceLoggerService.capture(
+        'Business dashboard load finished: businesses=${_userBusinesses.length}, '
+        'selected business=${_currentBusiness != null}, '
+        'using cache=$_isUsingCachedData, has error=${_errorMessage != null}',
+        severity: _userBusinesses.isEmpty ? 'WARNING' : 'INFO',
+      );
       notifyListeners();
     } catch (e) {
       _isLoading = false;
       _isLoadingInProgress = false;
       _errorMessage = 'Failed to load businesses: ${e.toString()}';
+      DeviceLoggerService.capture(
+        'Business dashboard load aborted (${e.runtimeType}); '
+        'businesses=${_userBusinesses.length}, '
+        'selected business=${_currentBusiness != null}',
+        severity: 'ERROR',
+      );
       print('[BusinessProvider] ❌ ERROR: $_errorMessage');
       notifyListeners();
     }
@@ -645,6 +676,7 @@ class BusinessProvider with ChangeNotifier {
       try {
         _localUserStorage ??= await LocalUserStorage.create();
         cachedUser = _localUserStorage?.getCachedUser();
+        cachedUser ??= await _localAuthCache.readUser();
         cachedUserId = cachedUser?.id;
       } catch (e) {
         print(
@@ -700,6 +732,7 @@ class BusinessProvider with ChangeNotifier {
             clearPreferredBusinessId: fallbackId == null,
           );
           await _localUserStorage!.saveUser(updatedUser);
+          await _localAuthCache.saveUser(updatedUser);
         }
       } catch (e) {
         print(
@@ -796,15 +829,34 @@ class BusinessProvider with ChangeNotifier {
     await _syncCurrentBusinessToProfile(userId, business.id);
 
     try {
-      final localUserStorage = await LocalUserStorage.create();
-      await localUserStorage.updateCachedUser(
-        businessId: business.id,
-        businessIds: [business.id],
-        currentBusinessId: business.id,
-      );
+      await _saveCachedBusinessSelection(userId, business.id);
     } catch (e) {
       print(
           '[BusinessProvider] Warning: failed to update local cached user: $e');
+    }
+  }
+
+  Future<void> _saveCachedBusinessSelection(
+    String userId,
+    String businessId,
+  ) async {
+    _localUserStorage ??= await LocalUserStorage.create();
+    final cachedUser = _localUserStorage!.getCachedUser() ??
+        await _localAuthCache.readUser();
+    if (cachedUser == null || cachedUser.id != userId) return;
+
+    final updatedUser = cachedUser.copyWith(
+      businessId: businessId,
+      businessIds: List<String>.from({...cachedUser.businessIds, businessId}),
+      currentBusinessId: businessId,
+    );
+    final preferencesSaved = await _localUserStorage!.saveUser(updatedUser);
+    await _localAuthCache.saveUser(updatedUser);
+    if (!preferencesSaved) {
+      DeviceLoggerService.capture(
+        'Could not save selected business to SharedPreferences; SQLite cache updated',
+        severity: 'WARNING',
+      );
     }
   }
 
@@ -880,12 +932,7 @@ class BusinessProvider with ChangeNotifier {
         await _syncCurrentBusinessToProfile(userId, business.id);
 
         try {
-          final localUserStorage = await LocalUserStorage.create();
-          await localUserStorage.updateCachedUser(
-            businessId: business.id,
-            businessIds: [business.id],
-            currentBusinessId: business.id,
-          );
+          await _saveCachedBusinessSelection(userId, business.id);
         } catch (e) {
           print(
               '[BusinessProvider] Warning: failed to update local cached user: $e');
@@ -989,6 +1036,12 @@ class BusinessProvider with ChangeNotifier {
             orElse: () => cachedBusinesses.first,
           );
     _isUsingCachedData = true;
+    DeviceLoggerService.capture(
+      'Restored business dashboard from local cache: '
+      'businesses=${cachedBusinesses.length}, '
+      'selected business=${_currentBusiness != null}',
+      severity: 'INFO',
+    );
     notifyListeners();
   }
 
@@ -1566,6 +1619,12 @@ class BusinessProvider with ChangeNotifier {
   /// Clear business session state. Local storage is only cleared on explicit
   /// logout so startup/auth transitions do not erase offline cache.
   Future<void> clearCachedBusinessData({bool clearLocalStorage = true}) async {
+    DeviceLoggerService.capture(
+      'Clearing business dashboard state: clear local storage=$clearLocalStorage, '
+      'businesses=${_userBusinesses.length}, '
+      'selected business=${_currentBusiness != null}',
+      severity: 'WARNING',
+    );
     if (clearLocalStorage && _localStorage != null) {
       await _localStorage!.clearAllBusinessData();
       print('[BusinessProvider] Cleared all cached business data');

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../core/utils/connectivity_helper.dart';
+import '../services/device_logger_service.dart';
 import 'sync_provider.dart';
 
 class ConnectivityProvider with ChangeNotifier {
@@ -68,14 +69,27 @@ class ConnectivityProvider with ChangeNotifier {
       _wasOffline = true;
     }
 
+    if (previousState != _isConnected) {
+      DeviceLoggerService.capture(
+        'Connectivity state changed: ${_isConnected ? 'online' : 'offline'} '
+        '(consecutive failed checks: $_consecutiveFailures)',
+        severity: _isConnected ? 'SUCCESS' : 'WARNING',
+      );
+    }
+
     // If we just came back online after being offline, attempt to sync sales
     if (!previousState && _isConnected && _wasOffline) {
+      DeviceLoggerService.capture('Connectivity restored; starting sync');
       try {
         // Delegate to SyncProvider which uses the correct SyncService setup
         await _syncProvider?.syncNow();
         // reset offline flag after successful sync
         _wasOffline = false;
       } catch (e) {
+        DeviceLoggerService.capture(
+          'Sync after connectivity restore failed (${e.runtimeType})',
+          severity: 'ERROR',
+        );
         debugPrint('[ConnectivityProvider] Error syncing sales: $e');
       }
     }
@@ -98,4 +112,3 @@ class ConnectivityProvider with ChangeNotifier {
     super.dispose();
   }
 }
-

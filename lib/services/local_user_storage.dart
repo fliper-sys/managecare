@@ -17,14 +17,33 @@ class LocalUserStorage {
     return LocalUserStorage(prefs);
   }
 
+  Future<void> reload() => _prefs.reload();
+
   /// Save user data to local storage after login
   Future<bool> saveUser(UserModel user) async {
     try {
       final json = jsonEncode(user.toJson());
-      await _prefs.setString(_userKey, json);
-      await _prefs.setString(_emailKey, user.email);
-      await _prefs.setBool(_autoLoginKey, true);
-      return true;
+      final userSaved = await _prefs.setString(_userKey, json);
+      final emailSaved = await _prefs.setString(_emailKey, user.email);
+      if (!userSaved || !emailSaved) {
+        await _prefs.setBool(_autoLoginKey, false);
+        print(
+          'Could not save the cached user '
+          '(user=$userSaved, email=$emailSaved); auto-login disabled',
+        );
+        return false;
+      }
+
+      final autoLoginSaved = await _prefs.setBool(_autoLoginKey, true);
+      final saved = autoLoginSaved &&
+          _prefs.getString(_userKey) == json &&
+          _prefs.getBool(_autoLoginKey) == true;
+      if (!saved) {
+        await _prefs.setBool(_autoLoginKey, false);
+        print(
+            'Could not verify the persistent login cache; auto-login disabled');
+      }
+      return saved;
     } catch (e) {
       print('Error saving user to local storage: $e');
       return false;
@@ -89,9 +108,11 @@ class LocalUserStorage {
       // Merge businessIds if provided; otherwise keep existing
       List<String> mergedBusinessIds = cached.businessIds;
       if (businessIds != null) {
-        mergedBusinessIds = List<String>.from({...mergedBusinessIds, ...businessIds});
+        mergedBusinessIds =
+            List<String>.from({...mergedBusinessIds, ...businessIds});
       } else if (businessId != null && businessId.isNotEmpty) {
-        if (!mergedBusinessIds.contains(businessId)) mergedBusinessIds.add(businessId);
+        if (!mergedBusinessIds.contains(businessId))
+          mergedBusinessIds.add(businessId);
       }
 
       final updated = cached.copyWith(
@@ -115,10 +136,12 @@ class LocalUserStorage {
   }
 
   // --- Per-user UI preferences ---
-  static const String _suppressBusinessSwitchPrefix = 'suppress_business_switch_';
+  static const String _suppressBusinessSwitchPrefix =
+      'suppress_business_switch_';
 
   /// Set whether the confirmation dialog for business switching should be suppressed for a given user
-  Future<bool> setSuppressBusinessSwitchConfirmationForUser(String userId, bool value) async {
+  Future<bool> setSuppressBusinessSwitchConfirmationForUser(
+      String userId, bool value) async {
     try {
       final key = '$_suppressBusinessSwitchPrefix$userId';
       await _prefs.setBool(key, value);
@@ -166,4 +189,3 @@ class LocalUserStorage {
     }
   }
 }
-

@@ -9,6 +9,7 @@ import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
 import '../../../services/business_restriction_service.dart';
 import '../../../services/subscription_service.dart';
+import '../../../services/device_logger_service.dart';
 import '../../../widgets/custom_button.dart';
 import '../../../widgets/custom_text_field.dart';
 import '../../../widgets/loading_indicator.dart';
@@ -108,19 +109,20 @@ class _LoginScreenState extends State<LoginScreen>
       Map<String, dynamic>? subscriptionData) {
     if (subscriptionData == null) return false;
 
-    final reviewStatus =
-        subscriptionData['subscriptionReviewStatus']?.toString().toLowerCase() ??
-            '';
+    final reviewStatus = subscriptionData['subscriptionReviewStatus']
+            ?.toString()
+            .toLowerCase() ??
+        '';
     final status =
         subscriptionData['subscriptionStatus']?.toString().toLowerCase() ?? '';
-    final hasActiveFlag =
-        subscriptionData['hasActiveSubscription'] == true ||
-            subscriptionData['isSubscriptionActive'] == true;
+    final hasActiveFlag = subscriptionData['hasActiveSubscription'] == true ||
+        subscriptionData['isSubscriptionActive'] == true;
     final statusLooksActive = reviewStatus == 'approved' ||
         reviewStatus == 'active' ||
         status == 'approved' ||
         status == 'active';
-    final endDate = _parseSubscriptionDate(subscriptionData['subscriptionEndDate']);
+    final endDate =
+        _parseSubscriptionDate(subscriptionData['subscriptionEndDate']);
     final isWithinDuration = endDate == null ||
         SubscriptionService.isWithinSubscriptionAccessWindow(endDate);
 
@@ -167,7 +169,8 @@ class _LoginScreenState extends State<LoginScreen>
       if (authProvider.currentUser == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('We could not reload your business profile. Please try again.'),
+            content: Text(
+                'We could not reload your business profile. Please try again.'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -175,11 +178,12 @@ class _LoginScreenState extends State<LoginScreen>
       }
 
       final user = authProvider.currentUser!;
-      final restrictionState = await BusinessRestrictionService()
-          .getRestrictionState(
+      final restrictionState =
+          await BusinessRestrictionService().getRestrictionState(
         userId: user.id,
-        businessId:
-            user.primaryBusinessId.isNotEmpty ? user.primaryBusinessId : user.businessId,
+        businessId: user.primaryBusinessId.isNotEmpty
+            ? user.primaryBusinessId
+            : user.businessId,
       );
 
       if (!mounted) return;
@@ -204,9 +208,9 @@ class _LoginScreenState extends State<LoginScreen>
             await _fetchBusinessSubscriptionStatus(currentBusinessId);
         final subscriptionStatus =
             (subscriptionData?['subscriptionReviewStatus'] ??
-                    subscriptionData?['subscriptionStatus'])
-                ?.toString()
-                .toLowerCase() ??
+                        subscriptionData?['subscriptionStatus'])
+                    ?.toString()
+                    .toLowerCase() ??
                 '';
         final hasActiveCurrentBusinessSubscription =
             _hasActiveCurrentBusinessSubscription(subscriptionData);
@@ -214,7 +218,7 @@ class _LoginScreenState extends State<LoginScreen>
         if (!mounted) return;
 
         if (subscriptionStatus == 'pending_approval' &&
-          !hasActiveCurrentBusinessSubscription) {
+            !hasActiveCurrentBusinessSubscription) {
           Navigator.of(context).pushReplacementNamed(
             '/subscription-status',
             arguments: {
@@ -569,21 +573,16 @@ class _LoginScreenState extends State<LoginScreen>
     final cardColor =
         isDark ? const Color(0xFF0F1D36).withOpacity(0.96) : Colors.white;
     final titleColor = isDark ? Colors.white : const Color(0xFF10223F);
-    final bodyColor = isDark
-        ? Colors.white.withOpacity(0.72)
-        : const Color(0xFF61708A);
-    final segmentedBackground = isDark
-        ? Colors.white.withOpacity(0.08)
-        : const Color(0xFFF4F7FB);
-    final segmentedBorder = isDark
-        ? Colors.white.withOpacity(0.12)
-        : const Color(0xFFE2E8F0);
-    final supportSurface = isDark
-        ? Colors.white.withOpacity(0.06)
-        : const Color(0xFFF8FAFC);
-    final supportBorder = isDark
-        ? Colors.white.withOpacity(0.10)
-        : const Color(0xFFE2E8F0);
+    final bodyColor =
+        isDark ? Colors.white.withOpacity(0.72) : const Color(0xFF61708A);
+    final segmentedBackground =
+        isDark ? Colors.white.withOpacity(0.08) : const Color(0xFFF4F7FB);
+    final segmentedBorder =
+        isDark ? Colors.white.withOpacity(0.12) : const Color(0xFFE2E8F0);
+    final supportSurface =
+        isDark ? Colors.white.withOpacity(0.06) : const Color(0xFFF8FAFC);
+    final supportBorder =
+        isDark ? Colors.white.withOpacity(0.10) : const Color(0xFFE2E8F0);
 
     return Container(
       padding: EdgeInsets.symmetric(
@@ -604,228 +603,275 @@ class _LoginScreenState extends State<LoginScreen>
       child: Theme(
         data: theme.copyWith(
           inputDecorationTheme: theme.inputDecorationTheme.copyWith(
-            fillColor:
-                isDark ? Colors.white.withOpacity(0.06) : Colors.white,
+            fillColor: isDark ? Colors.white.withOpacity(0.06) : Colors.white,
           ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-          Text(
-            _isWorkerLogin ? 'Worker Sign In' : 'Owner Sign In',
-            style: AppTextStyles.heading3.copyWith(
-              fontWeight: FontWeight.w800,
-              color: titleColor,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _isWorkerLogin
-                ? 'Use your worker email and password to access shift tools.'
-                : 'Use your business email and password to continue.',
-            style: AppTextStyles.body2.copyWith(
-              color: bodyColor,
-              height: 1.5,
-            ),
-          ),
-          const SizedBox(height: 24),
-          Container(
-            padding: const EdgeInsets.all(5),
-            decoration: BoxDecoration(
-              color: segmentedBackground,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: segmentedBorder),
-            ),
-            child: Row(
-              children: [
-                _buildToggleOption(
-                  title: 'Owner',
-                  isSelected: !_isWorkerLogin,
-                  onTap: () => setState(() {
-                    _isWorkerLogin = false;
-                    _clearFields();
-                  }),
-                ),
-                _buildToggleOption(
-                  title: 'Worker',
-                  isSelected: _isWorkerLogin,
-                  onTap: () => setState(() {
-                    _isWorkerLogin = true;
-                    _clearFields();
-                  }),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 26),
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 250),
-            child: _isWorkerLogin
-                ? CustomTextField(
-                    key: const ValueKey('workerId'),
-                    controller: _workerIdController,
-                    label: 'Worker Email',
-                    hint: 'name@business.com',
-                    keyboardType: TextInputType.emailAddress,
-                    prefixIcon: Icons.badge_outlined,
-                    validator: (v) {
-                      if (v?.trim().isEmpty == true) return 'Email required';
-                      if (!v!.contains('@')) return 'Invalid email';
-                      return null;
-                    },
-                  )
-                : CustomTextField(
-                    key: const ValueKey('email'),
-                    controller: _emailController,
-                    label: 'Email Address',
-                    hint: 'name@business.com',
-                    keyboardType: TextInputType.emailAddress,
-                    prefixIcon: Icons.email_outlined,
-                    validator: (v) {
-                      if (v?.trim().isEmpty == true) return 'Email required';
-                      if (!v!.contains('@')) return 'Invalid email';
-                      return null;
-                    },
-                  ),
-          ),
-          const SizedBox(height: 16),
-          CustomTextField(
-            controller: _passwordController,
-            label: 'Password',
-            hint: 'Enter your secure password',
-            obscureText: !_isPasswordVisible,
-            prefixIcon: Icons.lock_outline,
-            suffixIcon: IconButton(
-              icon: Icon(
-                _isPasswordVisible
-                    ? Icons.visibility_off_outlined
-                    : Icons.visibility_outlined,
-                color: isDark
-                    ? Colors.white.withOpacity(0.65)
-                    : Colors.grey.shade600,
-              ),
-              onPressed: () => setState(
-                () => _isPasswordVisible = !_isPasswordVisible,
-              ),
-            ),
-            validator: (v) =>
-                (v?.length ?? 0) < 6 ? 'Min 6 characters' : null,
-          ),
-          if (!_isWorkerLogin) ...[
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                style: TextButton.styleFrom(
-                  padding: EdgeInsets.zero,
-                  minimumSize: const Size(0, 0),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                onPressed: () =>
-                    Navigator.of(context).pushNamed(Routes.forgotPassword),
-                child: Text(
-                  'Forgot Password?',
-                  style: AppTextStyles.body2.copyWith(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ),
-          ],
-          const SizedBox(height: 22),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: supportSurface,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: supportBorder),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
+            ValueListenableBuilder<String?>(
+              valueListenable: DeviceLoggerService.recoveryNotice,
+              builder: (context, notice, _) {
+                if (notice == null) return const SizedBox.shrink();
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 20),
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0F766E).withOpacity(0.10),
+                    color: const Color(0xFFFFF4D6),
                     borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFE6C875)),
                   ),
-                  child: const Icon(
-                    Icons.security_rounded,
-                    color: Color(0xFF0F766E),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.info_outline,
+                        color: Color(0xFF805B00),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          notice,
+                          style: const TextStyle(
+                            color: Color(0xFF604500),
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Dismiss message',
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        onPressed: () =>
+                            DeviceLoggerService.setRecoveryNotice(null),
+                        icon: const Icon(
+                          Icons.close,
+                          size: 18,
+                          color: Color(0xFF805B00),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    _isWorkerLogin
-                        ? 'Staff access is scoped to the active business workspace.'
-                        : 'Owner access unlocks full settings, reporting, and operations control.',
-                    style: AppTextStyles.body2.copyWith(
-                      color: isDark
-                          ? Colors.white.withOpacity(0.74)
-                          : const Color(0xFF475569),
-                      height: 1.45,
-                    ),
-                  ),
-                ),
-              ],
+                );
+              },
             ),
-          ),
-          const SizedBox(height: 24),
-          _isLoading
-              ? const Center(child: CustomLoadingIndicator())
-              : SizedBox(
-                  height: 54,
-                  child: CustomButton(
-                    text: _isWorkerLogin ? 'Start Shift' : 'Enter Dashboard',
-                    onPressed: _handleLogin,
-                  ),
-                ),
-          if (!_isWorkerLogin)
-            Padding(
-              padding: const EdgeInsets.only(top: 22),
-              child: Wrap(
-                alignment: WrapAlignment.center,
+            Text(
+              _isWorkerLogin ? 'Worker Sign In' : 'Owner Sign In',
+              style: AppTextStyles.heading3.copyWith(
+                fontWeight: FontWeight.w800,
+                color: titleColor,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _isWorkerLogin
+                  ? 'Use your worker email and password to access shift tools.'
+                  : 'Use your business email and password to continue.',
+              style: AppTextStyles.body2.copyWith(
+                color: bodyColor,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                color: segmentedBackground,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: segmentedBorder),
+              ),
+              child: Row(
                 children: [
-                  Text(
-                    "Don't have an account? ",
+                  _buildToggleOption(
+                    title: 'Owner',
+                    isSelected: !_isWorkerLogin,
+                    onTap: () => setState(() {
+                      _isWorkerLogin = false;
+                      _clearFields();
+                    }),
+                  ),
+                  _buildToggleOption(
+                    title: 'Worker',
+                    isSelected: _isWorkerLogin,
+                    onTap: () => setState(() {
+                      _isWorkerLogin = true;
+                      _clearFields();
+                    }),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 26),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              child: _isWorkerLogin
+                  ? CustomTextField(
+                      key: const ValueKey('workerId'),
+                      controller: _workerIdController,
+                      label: 'Worker Email',
+                      hint: 'name@business.com',
+                      keyboardType: TextInputType.emailAddress,
+                      prefixIcon: Icons.badge_outlined,
+                      validator: (v) {
+                        if (v?.trim().isEmpty == true) return 'Email required';
+                        if (!v!.contains('@')) return 'Invalid email';
+                        return null;
+                      },
+                    )
+                  : CustomTextField(
+                      key: const ValueKey('email'),
+                      controller: _emailController,
+                      label: 'Email Address',
+                      hint: 'name@business.com',
+                      keyboardType: TextInputType.emailAddress,
+                      prefixIcon: Icons.email_outlined,
+                      validator: (v) {
+                        if (v?.trim().isEmpty == true) return 'Email required';
+                        if (!v!.contains('@')) return 'Invalid email';
+                        return null;
+                      },
+                    ),
+            ),
+            const SizedBox(height: 16),
+            CustomTextField(
+              controller: _passwordController,
+              label: 'Password',
+              hint: 'Enter your secure password',
+              obscureText: !_isPasswordVisible,
+              prefixIcon: Icons.lock_outline,
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _isPasswordVisible
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                  color: isDark
+                      ? Colors.white.withOpacity(0.65)
+                      : Colors.grey.shade600,
+                ),
+                onPressed: () => setState(
+                  () => _isPasswordVisible = !_isPasswordVisible,
+                ),
+              ),
+              validator: (v) =>
+                  (v?.length ?? 0) < 6 ? 'Min 6 characters' : null,
+            ),
+            if (!_isWorkerLogin) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(0, 0),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: () =>
+                      Navigator.of(context).pushNamed(Routes.forgotPassword),
+                  child: Text(
+                    'Forgot Password?',
                     style: AppTextStyles.body2.copyWith(
-                      color: bodyColor,
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  GestureDetector(
-                    onTap: () => Navigator.of(context).pushNamed(Routes.register),
+                ),
+              ),
+            ],
+            const SizedBox(height: 22),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: supportSurface,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: supportBorder),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F766E).withOpacity(0.10),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(
+                      Icons.security_rounded,
+                      color: Color(0xFF0F766E),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
                     child: Text(
-                      'Create one',
+                      _isWorkerLogin
+                          ? 'Staff access is scoped to the active business workspace.'
+                          : 'Owner access unlocks full settings, reporting, and operations control.',
                       style: AppTextStyles.body2.copyWith(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w800,
-                        decoration: TextDecoration.underline,
-                        decorationColor: AppColors.primary,
+                        color: isDark
+                            ? Colors.white.withOpacity(0.74)
+                            : const Color(0xFF475569),
+                        height: 1.45,
                       ),
                     ),
                   ),
                 ],
               ),
             ),
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Center(
-              child: TextButton.icon(
-                onPressed: () =>
-                    Navigator.of(context).pushNamed(Routes.marketerLogin),
-                icon: const Icon(Icons.campaign_outlined, size: 18),
-                label: const Text('Marketers login'),
-                style: TextButton.styleFrom(
-                  foregroundColor: isDark
-                      ? Colors.white.withOpacity(0.76)
-                      : const Color(0xFF486284),
+            const SizedBox(height: 24),
+            _isLoading
+                ? const Center(child: CustomLoadingIndicator())
+                : SizedBox(
+                    height: 54,
+                    child: CustomButton(
+                      text: _isWorkerLogin ? 'Start Shift' : 'Enter Dashboard',
+                      onPressed: _handleLogin,
+                    ),
+                  ),
+            if (!_isWorkerLogin)
+              Padding(
+                padding: const EdgeInsets.only(top: 22),
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  children: [
+                    Text(
+                      "Don't have an account? ",
+                      style: AppTextStyles.body2.copyWith(
+                        color: bodyColor,
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () =>
+                          Navigator.of(context).pushNamed(Routes.register),
+                      child: Text(
+                        'Create one',
+                        style: AppTextStyles.body2.copyWith(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w800,
+                          decoration: TextDecoration.underline,
+                          decorationColor: AppColors.primary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Center(
+                child: TextButton.icon(
+                  onPressed: () =>
+                      Navigator.of(context).pushNamed(Routes.marketerLogin),
+                  icon: const Icon(Icons.campaign_outlined, size: 18),
+                  label: const Text('Marketers login'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: isDark
+                        ? Colors.white.withOpacity(0.76)
+                        : const Color(0xFF486284),
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
         ),
       ),
     );
@@ -876,9 +922,7 @@ class _LoginScreenState extends State<LoginScreen>
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
             color: isSelected
-                ? (isDark
-                    ? Colors.white.withOpacity(0.14)
-                    : Colors.white)
+                ? (isDark ? Colors.white.withOpacity(0.14) : Colors.white)
                 : Colors.transparent,
             borderRadius: BorderRadius.circular(14),
             boxShadow: isSelected

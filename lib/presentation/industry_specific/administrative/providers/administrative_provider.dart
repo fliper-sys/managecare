@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 
 import '../../../../data/repositories/administrative_repository_supabase.dart';
+import '../../../../services/authentication_service.dart';
 
 enum AdministrativeTaskStatus { assigned, inProgress, submitted, approved, rejected }
 
@@ -95,7 +96,8 @@ class AdministrativeObligation {
   final String? assignedWorkerId;
   DateTime? completedAt;
 
-  bool get isCompleted => completedAt != null;
+  bool get isCompleted =>
+      completedAt != null && !dueAt.isAfter(completedAt!);
 }
 
 class AdministrativeProvider extends ChangeNotifier {
@@ -253,6 +255,28 @@ class AdministrativeProvider extends ChangeNotifier {
     if (businessId == null) return const [];
     return (_repository ??= AdministrativeRepositorySupabase())
         .getStaffing(businessId);
+  }
+
+  Future<void> createStaff({
+    required String email,
+    required String password,
+    required String fullName,
+    required String role,
+    String? phone,
+  }) async {
+    final businessId = _loadedBusinessId;
+    if (businessId == null) {
+      throw StateError('Select an administrative business first.');
+    }
+    await AuthenticationService().createWorkerUser(
+      email: email,
+      password: password,
+      fullName: fullName,
+      role: role,
+      businessId: businessId,
+      businessType: 'administrative',
+      phoneNumber: phone,
+    );
   }
 
   Future<void> updateStaffWorker({
@@ -605,9 +629,7 @@ class AdministrativeProvider extends ChangeNotifier {
   Future<Map<String, dynamic>> createInvoice({
     required String clientId,
     required String invoiceNumber,
-    required String description,
-    required double quantity,
-    required double unitPrice,
+    required List<Map<String, dynamic>> items,
     double taxAmount = 0,
     String? dueDate,
     String? notes,
@@ -621,13 +643,13 @@ class AdministrativeProvider extends ChangeNotifier {
       {
         'client_id': clientId,
         'invoice_number': invoiceNumber.trim(),
-        'items': [
-          {
-            'description': description.trim(),
-            'quantity': quantity,
-            'unit_price': unitPrice,
-          },
-        ],
+        'items': items
+            .map((item) => {
+                  'description': item['description'].toString().trim(),
+                  'quantity': item['quantity'],
+                  'unit_price': item['unit_price'],
+                })
+            .toList(),
         'tax_amount': taxAmount,
         if (dueDate != null) 'due_date': dueDate,
         if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
@@ -645,17 +667,27 @@ class AdministrativeProvider extends ChangeNotifier {
         (repository, businessId) => repository.voidInvoice(businessId, invoiceId),
       );
 
-  Future<void> recordInvoicePayment(String invoiceId, double amount) =>
+  Future<void> recordInvoicePayment(
+    String invoiceId,
+    double amount, {
+    required String paymentMethod,
+  }) =>
       _invoiceAction(
         invoiceId,
         (repository, businessId) =>
-            repository.recordInvoicePayment(businessId, invoiceId, amount),
+            repository.recordInvoicePayment(
+              businessId,
+              invoiceId,
+              amount,
+              paymentMethod: paymentMethod,
+            ),
       );
 
   Future<void> createFinancialEntry({
     required String entryType,
     required double amount,
     required String description,
+    required String paymentMethod,
     String? clientId,
   }) async {
     final businessId = _loadedBusinessId;
@@ -665,6 +697,7 @@ class AdministrativeProvider extends ChangeNotifier {
       'entry_type': entryType,
       'amount': amount,
       'description': description.trim(),
+      'payment_method': paymentMethod,
       if (clientId != null) 'client_id': clientId,
     });
   }
@@ -674,6 +707,7 @@ class AdministrativeProvider extends ChangeNotifier {
     required String entryType,
     required double amount,
     required String description,
+    required String paymentMethod,
     String? clientId,
   }) async {
     final businessId = _loadedBusinessId;
@@ -683,6 +717,7 @@ class AdministrativeProvider extends ChangeNotifier {
       'entry_type': entryType,
       'amount': amount,
       'description': description.trim(),
+      'payment_method': paymentMethod,
       'client_id': clientId,
     });
   }

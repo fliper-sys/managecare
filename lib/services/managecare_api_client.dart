@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/config/supabase_config.dart';
+import 'device_logger_service.dart';
 import 'supabase_auth_interceptor.dart';
 
 /// Thrown when the backend returns a non-2xx response.
@@ -66,7 +67,35 @@ class ManagecareApiClient {
   dynamic _decode(http.Response response) {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       if (response.body.isEmpty) return null;
-      return jsonDecode(response.body);
+      try {
+        return jsonDecode(response.body);
+      } on FormatException catch (error) {
+        final request = response.request;
+        final path = request?.url.path.replaceAll(
+              RegExp(
+                r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
+              ),
+              '<id>',
+            ) ??
+            'unknown endpoint';
+        final bodyStart = response.body.trimLeft();
+        final responseKind = bodyStart.startsWith('![](')
+            ? 'Markdown image content'
+            : 'non-JSON content';
+        DeviceLoggerService.capture(
+          'API response parsing failed: ${request?.method ?? 'unknown method'} '
+          '$path returned HTTP ${response.statusCode}, '
+          'content-type=${response.headers['content-type'] ?? 'unknown'}, '
+          '$responseKind (${response.body.length} characters)',
+          severity: 'ERROR',
+        );
+        throw FormatException(
+          'Expected JSON from ${request?.method ?? 'unknown method'} $path, '
+          'but received $responseKind',
+          error.source,
+          error.offset,
+        );
+      }
     }
     String message = 'Request failed (${response.statusCode})';
     try {

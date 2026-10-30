@@ -1,15 +1,52 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// Service for capturing detailed device and platform logs
 class DeviceLoggerService {
   static const platform = MethodChannel('com.manage_care.app/device_logs');
+  static const int _maxEntries = 500;
+  static final ValueNotifier<List<String>> entries =
+      ValueNotifier<List<String>>(const []);
+  static final ValueNotifier<String?> recoveryNotice =
+      ValueNotifier<String?>(null);
+  static bool _debugCaptureInitialized = false;
+
+  static void initializeErrorCapture() {
+    if (_debugCaptureInitialized) return;
+    _debugCaptureInitialized = true;
+
+    final previousErrorHandler = PlatformDispatcher.instance.onError;
+    PlatformDispatcher.instance.onError = (error, stack) {
+      capture('$error\n$stack', severity: 'ERROR');
+      return previousErrorHandler?.call(error, stack) ?? false;
+    };
+  }
+
+  static void capture(String message, {String severity = 'INFO'}) {
+    final entry = '[${DateTime.now().toIso8601String()}] [$severity] $message';
+    final updated = [...entries.value, entry];
+    if (updated.length > _maxEntries) {
+      updated.removeRange(0, updated.length - _maxEntries);
+    }
+    entries.value = List.unmodifiable(updated);
+  }
+
+  static void clear() {
+    entries.value = const [];
+  }
+
+  static void setRecoveryNotice(String? message) {
+    recoveryNotice.value = message;
+    if (message != null) {
+      capture('Sign-in recovery notice: $message', severity: 'WARNING');
+    }
+  }
 
   /// Log a message with timestamp and severity
   static void logDetailed(String tag, String message,
       {String severity = 'INFO'}) {
-    final timestamp = DateTime.now().toString();
-    final fullMessage = '[$timestamp] [$tag] [$severity] $message';
+    final fullMessage = '[$tag] [$severity] $message';
     print(fullMessage);
   }
 
@@ -18,7 +55,8 @@ class DeviceLoggerService {
     try {
       final info = <String, dynamic>{
         'platform': kIsWeb ? 'web' : Platform.operatingSystem,
-        'operatingSystemVersion': kIsWeb ? 'web' : Platform.operatingSystemVersion,
+        'operatingSystemVersion':
+            kIsWeb ? 'web' : Platform.operatingSystemVersion,
         'isAndroid': kIsWeb ? false : Platform.isAndroid,
         'isIOS': kIsWeb ? false : Platform.isIOS,
         'isWeb': kIsWeb,
@@ -121,4 +159,3 @@ class DeviceLoggerService {
 }
 
 const bool kIsWeb = bool.fromEnvironment('kIsWeb', defaultValue: false);
-

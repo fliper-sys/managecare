@@ -62,10 +62,28 @@ import 'data/local/database_helper.dart';
 import 'providers/admin_provider.dart';
 import 'providers/marketer_provider.dart';
 import 'services/services_initializer.dart';
+import 'services/device_logger_service.dart' hide kIsWeb;
 import 'presentation/industry_specific/administrative/providers/administrative_provider.dart';
 
-void main() async {
+void main() {
+  runZonedGuarded<Future<void>>(
+    _initializeAndRunApp,
+    (error, stackTrace) {
+      DeviceLoggerService.capture('$error\n$stackTrace', severity: 'ERROR');
+      debugPrint('Uncaught application error: $error\n$stackTrace');
+    },
+    zoneSpecification: ZoneSpecification(
+      print: (self, parent, zone, line) {
+        DeviceLoggerService.capture(line, severity: 'DEBUG');
+        parent.print(zone, line);
+      },
+    ),
+  );
+}
+
+Future<void> _initializeAndRunApp() async {
   WidgetsFlutterBinding.ensureInitialized();
+  DeviceLoggerService.initializeErrorCapture();
 
   // Disable runtime font fetching on web to avoid remote font load failures during local dev.
   if (kIsWeb) {
@@ -122,7 +140,8 @@ void main() async {
       if (!kIsWeb) _initializeLocalDatabase(),
     ]).timeout(const Duration(seconds: 10));
   } catch (e) {
-    debugPrint('[main] Startup init did not fully complete (continuing to show the app anyway): $e');
+    debugPrint(
+        '[main] Startup init did not fully complete (continuing to show the app anyway): $e');
   }
 
   // Initialize app services (analytics, barcode, cloud storage, push/local
@@ -211,7 +230,23 @@ class MyApp extends StatelessWidget {
             // If user is not authenticated, clear any cached business data after
             // auth initialization has finished.
             if (!auth.isAuthenticated || auth.currentUser == null) {
+              // Supabase can briefly emit a null session while Windows is
+              // offline or restoring a persisted session. Keep the current
+              // business context in memory when the cached login is still
+              // enabled; explicit logout clears that cached login first.
+              if (auth.isPersistentLoginEnabled && auth.hasCachedUser) {
+                DeviceLoggerService.capture(
+                  'Auth proxy retained business dashboard during temporary unauthenticated state '
+                  '(auto-login enabled, cached user available)',
+                  severity: 'WARNING',
+                );
+                return previous;
+              }
               try {
+                DeviceLoggerService.capture(
+                  'Auth proxy clearing business dashboard: unauthenticated and no usable cached login',
+                  severity: 'ERROR',
+                );
                 previous.clearCachedBusinessData(clearLocalStorage: false);
                 print(
                     '[Main] Cleared BusinessProvider due to unauthenticated auth state');
@@ -228,6 +263,10 @@ class MyApp extends StatelessWidget {
             if (previous.loadedForUserId != null &&
                 previous.loadedForUserId != userId) {
               try {
+                DeviceLoggerService.capture(
+                  'Auth proxy clearing business dashboard after authenticated account changed',
+                  severity: 'WARNING',
+                );
                 previous.clearCachedBusinessData(clearLocalStorage: false);
                 print(
                     '[Main] Cleared BusinessProvider cache because authenticated user changed (old: ${previous.loadedForUserId}, new: $userId)');

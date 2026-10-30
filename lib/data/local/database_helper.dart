@@ -31,7 +31,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 9,
+      version: 10,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -162,6 +162,14 @@ class DatabaseHelper {
       )
     ''');
 
+    await db.execute('''
+      CREATE TABLE auth_cache (
+        id TEXT PRIMARY KEY,
+        userJson TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      )
+    ''');
+
     // Create indexes
     await db.execute('CREATE INDEX idx_sales_business ON sales(businessId)');
     await db.execute('CREATE INDEX idx_sales_sync ON sales(syncStatus)');
@@ -262,6 +270,15 @@ class DatabaseHelper {
       await _addColumnsIfMissing(db, 'sales', {
         'paymentBreakdown': 'TEXT',
       });
+    }
+    if (oldVersion < 10) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS auth_cache (
+          id TEXT PRIMARY KEY,
+          userJson TEXT NOT NULL,
+          updatedAt TEXT NOT NULL
+        )
+      ''');
     }
   }
 
@@ -565,4 +582,3 @@ class _WebDatabase {
     } catch (_) {}
   }
 }
-

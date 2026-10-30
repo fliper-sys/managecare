@@ -1518,6 +1518,7 @@ module.exports = function administrativeRoutes(
       client_name: entry.client?.name ?? null,
       invoice_id: entry.invoiceId,
       entry_type: entry.entryType,
+      payment_method: entry.paymentMethod,
       amount: Number(entry.amount),
       occurred_at: entry.occurredAt,
       description: entry.description,
@@ -1533,12 +1534,15 @@ module.exports = function administrativeRoutes(
     const entryType = oneOf(b.entry_type, ['revenue', 'expense'], 'entry_type');
     const amount = Number(b.amount);
     if (!Number.isFinite(amount) || amount < 0) throw new HttpError(400, 'amount must be a non-negative number');
+    const paymentMethod = b.payment_method == null
+      ? null
+      : oneOf(b.payment_method, ['cash', 'transfer', 'mixed'], 'payment_method');
     const clientId = optionalUuid(b.client_id, 'client_id');
     if (clientId) await loadClient(prisma, req, clientId);
     const entry = await prisma.$transaction(async (tx) => {
       const created = await tx.administrativeFinancialEntry.create({
         data: {
-          businessId, clientId, entryType, amount,
+          businessId, clientId, entryType, paymentMethod, amount,
           description: requireText(b.description, 'description', 1000),
           createdBy: me(req),
         },
@@ -1564,6 +1568,9 @@ module.exports = function administrativeRoutes(
     const b = req.body || {};
     const data = {};
     if (b.entry_type !== undefined) data.entryType = oneOf(b.entry_type, ['revenue', 'expense'], 'entry_type');
+    if (b.payment_method !== undefined) {
+      data.paymentMethod = oneOf(b.payment_method, ['cash', 'transfer', 'mixed'], 'payment_method');
+    }
     if (b.amount !== undefined) {
       const amount = Number(b.amount);
       if (!Number.isFinite(amount) || amount < 0) throw new HttpError(400, 'amount must be a non-negative number');
@@ -1707,6 +1714,7 @@ module.exports = function administrativeRoutes(
     const { businessId, invoiceId } = req.params;
     const amount = Number((req.body || {}).amount);
     if (!Number.isFinite(amount) || amount <= 0) throw new HttpError(400, 'amount must be greater than zero');
+    const paymentMethod = oneOf((req.body || {}).payment_method, ['cash', 'transfer', 'mixed'], 'payment_method');
     const invoice = await prisma.$transaction(async (tx) => {
       const current = await tx.administrativeInvoice.findFirst({ where: { id: invoiceId, businessId } });
       if (!current) throw new HttpError(404, 'Invoice not found');
@@ -1726,7 +1734,7 @@ module.exports = function administrativeRoutes(
       await tx.administrativeFinancialEntry.create({
         data: {
           businessId, clientId: current.clientId, invoiceId,
-          entryType: 'revenue', amount,
+          entryType: 'revenue', paymentMethod, amount,
           description: `Payment for invoice ${current.invoiceNumber}`,
           createdBy: me(req),
         },
@@ -1757,11 +1765,16 @@ module.exports = function administrativeRoutes(
     if (!invoice) throw new HttpError(404, 'Invoice not found');
     const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
     const lines = invoice.items.map((item) => `<li>${escapeHtml(item.description)} — ${Number(item.quantity)} × ${Number(item.unitPrice).toFixed(2)}</li>`).join('');
-    await sendMail({
-      to,
-      subject: `Invoice ${invoice.invoiceNumber}`,
-      html: `<p>Hello ${escapeHtml(invoice.client?.name)},</p><p>Invoice ${escapeHtml(invoice.invoiceNumber)} for NGN ${Number(invoice.totalAmount).toFixed(2)}.</p><ul>${lines}</ul><p>${escapeHtml(invoice.notes)}</p>`,
-    });
+    try {
+      await sendMail({
+        to,
+        subject: `Invoice ${invoice.invoiceNumber}`,
+        html: `<p>Hello ${escapeHtml(invoice.client?.name)},</p><p>Invoice ${escapeHtml(invoice.invoiceNumber)} for NGN ${Number(invoice.totalAmount).toFixed(2)}.</p><ul>${lines}</ul><p>${escapeHtml(invoice.notes)}</p>`,
+      });
+    } catch (error) {
+      console.error('[Administrative] Invoice email delivery failed:', error?.code || error?.name || 'unknown');
+      throw new HttpError(503, 'Invoice could not be emailed. Check the server email configuration and try again.');
+    }
     if (invoice.status === 'draft') {
       await prisma.administrativeInvoice.updateMany({
         where: { id: invoiceId, businessId, status: 'draft' },
@@ -1812,6 +1825,8 @@ module.exports = function administrativeRoutes(
       businessId, clientId, recurrenceType, intervalDays, fixedDayOfMonth,
       title: requireText(b.title, 'title'),
       nextDueAt: parseDateTime(b.nextDueAt, 'nextDueAt'),
+      lastCompletedAt: null,
+      isActive: true,
       assignedTo: optionalUuid(b.assignedTo, 'assignedTo'),
       createdBy: me(req),
     };
