@@ -13,4 +13,33 @@ void main() {
       }
     });
   });
+
+  group('Bar store keeper permissions', () {
+    test('allows order confirmation and bottle collection, not payment', () {
+      expect(
+        WorkerPermissions.hasEffectivePermission(
+          'store_keeper',
+          const [],
+          'confirm_bar_orders',
+        ),
+        isTrue,
+      );
+      expect(
+        WorkerPermissions.hasEffectivePermission(
+          'store_keeper',
+          const [],
+          'confirm_bar_collection',
+        ),
+        isTrue,
+      );
+      expect(
+        WorkerPermissions.hasEffectivePermission(
+          'store_keeper',
+          const [],
+          'confirm_bar_payments',
+        ),
+        isFalse,
+      );
+    });
+  });
 }
