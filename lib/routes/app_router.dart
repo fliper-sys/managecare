@@ -145,9 +145,9 @@ import '../presentation/industry_specific/salon/screens/commission_tracker_scree
 import '../presentation/industry_specific/hotel/screens/hotel_dashboard_screen.dart';
 import '../presentation/industry_specific/hotel/screens/room_list_screen.dart';
 import '../presentation/industry_specific/hotel/screens/create_room_screen.dart';
+import '../presentation/industry_specific/hotel/screens/booking_history_screen.dart';
 import '../presentation/industry_specific/hotel/screens/bookings_screen.dart'
     as hotel_bookings;
-import '../presentation/industry_specific/hotel/screens/check_in_screen.dart';
 import '../presentation/industry_specific/hotel/screens/check_in_hub_screen.dart';
 import '../presentation/industry_specific/hotel/screens/hotel_analytics_screen.dart';
 import '../presentation/industry_specific/hotel/screens/hotel_expenses_screen.dart';
@@ -163,6 +163,7 @@ import '../presentation/industry_specific/drink/screens/drink_dashboard_screen.d
 import '../presentation/industry_specific/drink/screens/drink_orders_history_screen.dart';
 import '../presentation/industry_specific/drink/screens/inventory_screen.dart';
 import '../presentation/industry_specific/drink/screens/bottle_tracking_screen.dart';
+import '../presentation/industry_specific/drink/screens/bar_payment_confirmation_screen.dart';
 import '../presentation/industry_specific/drink/screens/bar_tabs_screen.dart';
 import '../presentation/industry_specific/drink/screens/distribution_orders_screen.dart';
 import '../presentation/industry_specific/drink/screens/bar_pos_screen.dart';
@@ -267,8 +268,7 @@ class AppRouter {
         return _buildRoute(
           RestrictedBusinessScreen(
             businessName: args['businessName']?.toString() ?? 'This business',
-            restrictionReason:
-                args['restrictionReason']?.toString() ?? '',
+            restrictionReason: args['restrictionReason']?.toString() ?? '',
             customerCareWhatsapp:
                 args['customerCareWhatsapp']?.toString() ?? '',
           ),
@@ -582,8 +582,10 @@ class AppRouter {
         final args = settings.arguments;
         if (args is Map<String, dynamic>) {
           // If a full sale map was passed (contains items), show ReceiptScreen directly to avoid Firestore race
-          final rawSaleId =
-              args['saleId'] ?? args['orderId'] ?? args['receiptId'] ?? args['id'];
+          final rawSaleId = args['saleId'] ??
+              args['orderId'] ??
+              args['receiptId'] ??
+              args['id'];
           final saleId = rawSaleId?.toString().trim() ?? '';
           if (args.containsKey('items') && saleId.isNotEmpty) {
             final saleMap = {
@@ -619,7 +621,8 @@ class AppRouter {
           }
           return _buildRoute(SalesReceiptLoaderScreen(saleId: saleId));
         }
-        return _buildRoute(const Scaffold(body: Center(child: Text('Invalid sale reference'))));
+        return _buildRoute(const Scaffold(
+            body: Center(child: Text('Invalid sale reference'))));
 
       case Routes.retailReceipt:
         final args = settings.arguments as Map<String, dynamic>?;
@@ -842,6 +845,12 @@ class AppRouter {
       case Routes.hotelBookings:
         return _buildRoute(const hotel_bookings.BookingsScreen());
 
+      case Routes.hotelBookingHistory:
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _buildRoute(
+          BookingHistoryScreen(roomId: args?['roomId']?.toString()),
+        );
+
       case Routes.hotelCheckIn:
         // Points at the new central hub (3 tabs, dual FABs, countdown timers,
         // history buttons). The old CheckInScreen is retained as a legacy
@@ -922,6 +931,13 @@ class AppRouter {
 
       case Routes.drinkOrdersHistory:
         return _buildRoute(const DrinkOrdersHistoryScreen());
+
+      case Routes.drinkOrderPayment:
+        final args = settings.arguments as Map<String, dynamic>?;
+        final invoiceId = args?['invoiceId']?.toString() ?? '';
+        return _buildRoute(
+          BarPaymentConfirmationScreen(invoiceId: invoiceId),
+        );
 
       case Routes.drinkManage:
         return _buildRoute(const DrinkManagementScreen());

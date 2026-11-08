@@ -8,6 +8,7 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../providers/hotel_provider.dart';
 import '../../../../services/receipt_manager.dart';
 import '../widgets/folio_widget.dart';
+import '../../../shared/payment_breakdown_dialog.dart';
 
 class BillingScreen extends StatelessWidget {
   const BillingScreen({super.key});
@@ -176,10 +177,33 @@ class BillingScreen extends StatelessWidget {
                                   onPressed: !canManageBilling
                                       ? null
                                       : () async {
-                                    await provider.updatePaymentStatus(
-                                      reservation.id,
-                                      'partial',
+                                    final payment =
+                                        await showPaymentBreakdownDialog(
+                                      context,
+                                      title: 'Record partial payment',
+                                      amountDue: provider
+                                          .getReservationBalance(reservation),
+                                      allowPartial: true,
                                     );
+                                    if (payment == null || !context.mounted) {
+                                      return;
+                                    }
+                                    try {
+                                      await provider.recordReservationPayment(
+                                        reservation.id,
+                                        payment,
+                                      );
+                                    } catch (error) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                                'Could not record payment: $error'),
+                                          ),
+                                        );
+                                      }
+                                    }
                                   },
                                   child: const Text('Mark Partial'),
                                 ),
@@ -190,53 +214,70 @@ class BillingScreen extends StatelessWidget {
                                   onPressed: !canManageBilling
                                       ? null
                                       : () async {
-                                    await provider.updatePaymentStatus(
-                                      reservation.id,
-                                      'paid',
+                                    final payment =
+                                        await showPaymentBreakdownDialog(
+                                      context,
+                                      title: 'Confirm reservation payment',
+                                      amountDue: provider
+                                          .getReservationBalance(reservation),
                                     );
-                                    if (reservation.status == 'checked-in') {
-                                      await provider.updateReservationStatus(
-                                        reservation.id,
-                                        'checked-out',
-                                      );
+                                    if (payment == null || !context.mounted) {
+                                      return;
                                     }
-                                    final updatedReservation = provider.reservations
-                                        .firstWhere(
-                                      (item) => item.id == reservation.id,
-                                      orElse: () => reservation.copyWith(
-                                        paymentStatus: 'paid',
-                                        status: reservation.status == 'checked-in'
-                                            ? 'checked-out'
-                                            : reservation.status,
-                                      ),
-                                    );
-                                    final saleMap =
-                                        provider.buildReservationSalePayload(
-                                      updatedReservation,
-                                      room: room,
-                                      paymentMethod: 'hotel_billing',
-                                    );
-                                    if (context.mounted) {
+                                    try {
+                                      if (payment.total > 0) {
+                                        await provider.recordReservationPayment(
+                                          reservation.id,
+                                          payment,
+                                        );
+                                      }
+                                      if (reservation.status == 'checked-in') {
+                                        await provider.checkOutReservation(
+                                          reservation.id,
+                                        );
+                                      }
+                                      final updatedReservation = provider
+                                          .getReservationById(reservation.id)!;
+                                      final saleMap = provider
+                                          .buildReservationSalePayload(
+                                        updatedReservation,
+                                        room: room,
+                                        paymentMethod:
+                                            updatedReservation.paymentMethod,
+                                      );
+                                      if (!context.mounted) return;
                                       await ReceiptManager.handlePostSale(
                                         context,
                                         saleMap,
                                         invoiceGeneratedBeforeCheckout: true,
                                       );
-                                    }
-                                    if (context.mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            'Payment updated for ${reservation.guestName}',
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              'Payment confirmed for ${reservation.guestName}',
+                                            ),
                                           ),
-                                        ),
-                                      );
+                                        );
+                                      }
+                                    } catch (error) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              'Could not confirm payment: $error',
+                                            ),
+                                          ),
+                                        );
+                                      }
                                     }
                                   },
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: Colors.green,
                                   ),
-                                  child: const Text('Mark Paid'),
+                                  child: const Text('Confirm Payment'),
                                 ),
                               ),
                             ],

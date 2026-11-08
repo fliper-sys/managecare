@@ -231,6 +231,27 @@ module.exports = function(pool) {
           [businessId, productId, snapshot.quantity, updatedQuantity, invoice_ref || null,
            created_by || null, created_by_name || null, JSON.stringify({ batchId: batchResult.rows[0].id })]
         );
+
+        if (/fuel|petrol|diesel|kerosene|petroleum|pms|ago|dpk|gas/i.test(`${inv.category || ''} ${inv.name || ''} ${inv.unit || ''}`)) {
+          const badgeCode = `${snapshot.batchLabel || 'BATCH'}-${procurement.id}-${productId}`;
+          const badge = await client.query(
+            `INSERT INTO petroleum_badge_batches (business_id, product_id, inventory_batch_id, procurement_id, badge_code,
+               source_type, received_quantity, remaining_quantity, unit, supplier_name, reference, created_by, created_by_name)
+             VALUES ($1,$2,$3,$4,$5,'procurement',$6,$6,$7,$8,$9,$10,$11)
+             ON CONFLICT (business_id,badge_code) DO NOTHING RETURNING id`,
+            [businessId, productId, batchResult.rows[0].id, procurement.id, badgeCode, snapshot.quantity,
+             snapshot.unit, supplier_name || null, invoice_ref || null, created_by || null, created_by_name || null]
+          );
+          if (badge.rows[0]) {
+            await client.query(
+              `INSERT INTO petroleum_badge_movements (business_id, product_id, badge_batch_id, movement_type, quantity, source_type, source_id, idempotency_key, note, created_by, created_by_name)
+               VALUES ($1,$2,$3,'procurement',$4,'procurement',$5,$6,$7,$8,$9)
+               ON CONFLICT (business_id,idempotency_key) DO NOTHING`,
+              [businessId, productId, badge.rows[0].id, snapshot.quantity, procurement.id,
+               `procurement:${procurement.id}:${productId}:${badge.rows[0].id}`, invoice_ref || null, created_by || null, created_by_name || null]
+            );
+          }
+        }
       }
 
       await client.query('COMMIT');

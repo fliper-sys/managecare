@@ -19,6 +19,137 @@ module.exports = function(pool) {
     return res.status(403).json({ error: 'Only a business owner, admin, or manager can approve bakery inventory requests' });
   };
 
+  const petroleumPattern = /(fuel|petrol|diesel|kerosene|petroleum|pms|ago|dpk|gas)/i;
+  const adjustPetroleumStock = async (businessId, inventoryId, amount, operation, req) => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const productResult = await client.query(
+        'SELECT * FROM inventory WHERE id = $1 AND business_id = $2 FOR UPDATE',
+        [inventoryId, businessId]
+      );
+      if (!productResult.rows.length) {
+        throw Object.assign(new Error('Inventory item not found'), { statusCode: 404, expose: true });
+      }
+      const product = productResult.rows[0];
+      if (!petroleumPattern.test(`${product.category || ''} ${product.name || ''} ${product.unit || ''}`)) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+
+      const parsedAmount = Number(amount);
+      if (!Number.isFinite(parsedAmount) || parsedAmount < 0 ||
+          (operation !== 'set' && parsedAmount <= 0)) {
+        throw Object.assign(new Error('Petroleum stock quantity must be a valid non-negative number'), {
+          statusCode: 400, expose: true,
+        });
+      }
+      const balanceResult = await client.query(
+        `SELECT COALESCE(SUM(remaining_quantity), 0)::numeric AS quantity
+         FROM petroleum_badge_batches WHERE business_id = $1 AND product_id = $2`,
+        [businessId, inventoryId]
+      );
+      const current = Number(balanceResult.rows[0].quantity) || 0;
+      const target = operation === 'increment' ? current + parsedAmount
+        : operation === 'decrement' ? current - parsedAmount : parsedAmount;
+      if (target < 0) {
+        throw Object.assign(new Error('Petroleum adjustment would reduce badge stock below zero'), {
+          statusCode: 409, expose: true,
+        });
+      }
+      const delta = target - current;
+      if (delta === 0) {
+        const unchanged = await client.query(
+          'UPDATE inventory SET quantity = $1, updated_at = NOW() WHERE id = $2 AND business_id = $3 RETURNING *',
+          [target, inventoryId, businessId]
+        );
+        await client.query('COMMIT');
+        return unchanged.rows[0];
+      }
+
+      const adjustmentResult = await client.query('SELECT uuid_generate_v4() AS id');
+      const adjustmentId = adjustmentResult.rows[0].id;
+      const note = req.body?.quantity_adjustment_note || req.body?.notes || req.body?.reason ||
+        'Manual petroleum stock adjustment';
+      const actorId = req.user?.id || null;
+      const actorName = req.body?.performed_by_name || req.user?.email || null;
+      const allocations = [];
+
+      if (delta > 0) {
+        const badgeResult = await client.query(
+          `INSERT INTO petroleum_badge_batches
+             (business_id, product_id, badge_code, source_type, received_quantity,
+              remaining_quantity, unit, reference, created_by, created_by_name)
+           VALUES ($1, $2, $3, 'adjustment', $4, $4, $5, $6, $7, $8)
+           RETURNING id, badge_code`,
+          [businessId, inventoryId, `ADJ-${adjustmentId}`, delta, product.unit || null,
+           adjustmentId, actorId, actorName]
+        );
+        const badge = badgeResult.rows[0];
+        await client.query(
+          `INSERT INTO petroleum_badge_movements
+             (business_id, product_id, badge_batch_id, movement_type, quantity, source_type,
+              source_id, idempotency_key, note, created_by, created_by_name)
+           VALUES ($1, $2, $3, 'adjustment', $4, 'stock_adjustment', $5, $6, $7, $8, $9)`,
+          [businessId, inventoryId, badge.id, delta, adjustmentId,
+           `adjustment:${adjustmentId}:${badge.id}`, note, actorId, actorName]
+        );
+        allocations.push({ badge_id: badge.id, quantity: delta });
+      } else {
+        let remaining = Math.abs(delta);
+        const badges = await client.query(
+          `SELECT id, remaining_quantity FROM petroleum_badge_batches
+           WHERE business_id = $1 AND product_id = $2 AND remaining_quantity > 0
+           ORDER BY created_at, id FOR UPDATE`,
+          [businessId, inventoryId]
+        );
+        for (const badge of badges.rows) {
+          if (remaining <= 0) break;
+          const quantity = Math.min(remaining, Number(badge.remaining_quantity));
+          await client.query(
+            'UPDATE petroleum_badge_batches SET remaining_quantity = remaining_quantity - $1 WHERE id = $2',
+            [quantity, badge.id]
+          );
+          await client.query(
+            `INSERT INTO petroleum_badge_movements
+               (business_id, product_id, badge_batch_id, movement_type, quantity, source_type,
+                source_id, idempotency_key, note, created_by, created_by_name)
+             VALUES ($1, $2, $3, 'adjustment', $4, 'stock_adjustment', $5, $6, $7, $8, $9)`,
+            [businessId, inventoryId, badge.id, -quantity, adjustmentId,
+             `adjustment:${adjustmentId}:${badge.id}`, note, actorId, actorName]
+          );
+          allocations.push({ badge_id: badge.id, quantity: -quantity });
+          remaining -= quantity;
+        }
+        if (remaining > 0) {
+          throw Object.assign(new Error('Petroleum badge balances do not contain enough stock to apply this adjustment'), {
+            statusCode: 409, expose: true,
+          });
+        }
+      }
+
+      const updated = await client.query(
+        'UPDATE inventory SET quantity = $1, updated_at = NOW() WHERE id = $2 AND business_id = $3 RETURNING *',
+        [target, inventoryId, businessId]
+      );
+      await client.query(
+        `INSERT INTO inventory_history
+           (business_id, inventory_id, change_type, quantity_change, quantity_after, notes,
+            performed_by_id, performed_by_name, metadata)
+         VALUES ($1, $2, 'petroleum_adjustment', $3, $4, $5, $6, $7, $8::jsonb)`,
+        [businessId, inventoryId, delta, target, note, actorId, actorName,
+         JSON.stringify({ adjustmentId, badgeAllocations: allocations })]
+      );
+      await client.query('COMMIT');
+      return updated.rows[0];
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+
   // GET /api/inventory/:businessId - List inventory items
   router.get('/:businessId', pagination, asyncHandler(async (req, res) => {
     const { businessId } = req.params;
@@ -447,6 +578,10 @@ module.exports = function(pool) {
       name, sku, barcode, category, description, unit_price, cost_price,
       quantity, min_stock_level, unit, expiry_date, store_id, is_active, metadata,
     } = req.body;
+    const petroleumStockResult = quantity === undefined
+      ? null
+      : await adjustPetroleumStock(businessId, id, quantity, 'set', req);
+    const petroleumQuantityHandled = petroleumStockResult != null;
 
     // Build dynamic update
     const fields = [];
@@ -460,7 +595,7 @@ module.exports = function(pool) {
     if (description !== undefined) { fields.push(`description = $${paramIndex++}`); params.push(description); }
     if (unit_price !== undefined) { fields.push(`unit_price = $${paramIndex++}`); params.push(unit_price); }
     if (cost_price !== undefined) { fields.push(`cost_price = $${paramIndex++}`); params.push(cost_price); }
-    if (quantity !== undefined) { fields.push(`quantity = $${paramIndex++}`); params.push(quantity); }
+    if (quantity !== undefined && !petroleumQuantityHandled) { fields.push(`quantity = $${paramIndex++}`); params.push(quantity); }
     if (min_stock_level !== undefined) { fields.push(`min_stock_level = $${paramIndex++}`); params.push(min_stock_level); }
     if (unit !== undefined) { fields.push(`unit = $${paramIndex++}`); params.push(unit); }
     if (expiry_date !== undefined) { fields.push(`expiry_date = $${paramIndex++}`); params.push(expiry_date); }
@@ -469,6 +604,7 @@ module.exports = function(pool) {
     if (metadata !== undefined) { fields.push(`metadata = metadata || $${paramIndex++}::jsonb`); params.push(JSON.stringify(metadata)); }
 
     if (fields.length === 0) {
+      if (petroleumStockResult) return res.json(petroleumStockResult);
       return res.status(400).json({ error: 'No fields to update' });
     }
 
@@ -503,6 +639,10 @@ module.exports = function(pool) {
   router.patch('/:businessId/:id/quantity', requireFields('quantity'), asyncHandler(async (req, res) => {
     const { businessId, id } = req.params;
     const { quantity, operation } = req.body;
+    const petroleumResult = await adjustPetroleumStock(
+      businessId, id, quantity, operation === 'increment' || operation === 'decrement' ? operation : 'set', req,
+    );
+    if (petroleumResult) return res.json(petroleumResult);
 
     let query;
     if (operation === 'increment') {

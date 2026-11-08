@@ -15,6 +15,7 @@ import '../../../../core/utils/receipt_utility.dart';
 import '../../../shared/payment_method_sheet.dart';
 import '../utils/pump_config_cache.dart';
 import '../utils/pump_row_mapper.dart';
+import 'petroleum_badge_context.dart';
 
 class GasPumpScreen extends StatefulWidget {
   const GasPumpScreen({super.key});
@@ -54,7 +55,8 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
     if (_syncingPendingSales) return;
     _syncingPendingSales = true;
     try {
-      final synced = await context.read<RetailProvider>().syncPendingPumpSales();
+      final synced =
+          await context.read<RetailProvider>().syncPendingPumpSales();
       if (!mounted || synced <= 0) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('$synced pending pump sale(s) synced')),
@@ -79,7 +81,8 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
 
   void _syncCacheFromRows(String businessId, List<Map<String, dynamic>> rows) {
     final remotePumps = PumpConfigCache.sort(rows);
-    if (remotePumps.isEmpty || PumpConfigCache.same(remotePumps, _cachedPumps)) {
+    if (remotePumps.isEmpty ||
+        PumpConfigCache.same(remotePumps, _cachedPumps)) {
       return;
     }
 
@@ -98,7 +101,8 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
       try {
         final response = await ManagecareApiClient.instance
             .get('/api/pumps/$businessId/pumps', query: {'isActive': 'true'});
-        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        final rows =
+            ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
         yield rows.map(pumpRowToJson).toList();
       } catch (_) {
         // Swallow transient errors between polls so the stream stays alive.
@@ -199,8 +203,7 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
             setState(() {
               _selectedPumpId = selectedPump['id']?.toString();
               _selectedPumpNumber = selectedPump['pumpNumber']?.toString();
-              _selectedPumpName =
-                  'Pump ${selectedPump['pumpNumber'] ?? ''}';
+              _selectedPumpName = 'Pump ${selectedPump['pumpNumber'] ?? ''}';
               _selectedProductId = selectedPump['productId']?.toString();
             });
           });
@@ -260,7 +263,9 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
           category == 'gas';
     }).toList();
 
-    final selected = products.firstWhereOrNull((p) => p.id == _selectedProductId) ?? (products.isNotEmpty ? products.first : null);
+    final selected =
+        products.firstWhereOrNull((p) => p.id == _selectedProductId) ??
+            (products.isNotEmpty ? products.first : null);
 
     if (connectivity.isConnected) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -301,12 +306,15 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Pump Sale')),
       body: products.isEmpty
-          ? const Center(child: Text('No fuel products configured. Add a Product with category `Fuel`.'))
+          ? const Center(
+              child: Text(
+                  'No fuel products configured. Add a Product with category `Fuel`.'))
           : Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const PetroleumBadgeContextBar(),
                   _buildPumpSelector(
                     isPumpOperator: isPumpOperator,
                     businessId: business.id,
@@ -315,10 +323,16 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Select Fuel Product',
                       border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                     ),
                     value: selected?.id,
-                    items: products.map((p) => DropdownMenuItem(value: p.id, child: Text('${p.name} • ${p.price.toStringAsFixed(2)}/${p.unit}'))).toList(),
+                    items: products
+                        .map((p) => DropdownMenuItem(
+                            value: p.id,
+                            child: Text(
+                                '${p.name} • ${p.price.toStringAsFixed(2)}/${p.unit}')))
+                        .toList(),
                     onChanged: _selectedPumpId == null
                         ? (v) => setState(() => _selectedProductId = v)
                         : null,
@@ -329,21 +343,33 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                       borderRadius: BorderRadius.circular(8),
                       isSelected: [_sellByAmount, !_sellByAmount],
                       onPressed: (i) => setState(() => _sellByAmount = i == 0),
-                      children: const [Padding(padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12), child: Text('Sell by Amount')), Padding(padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12), child: Text('Sell by Volume'))],
+                      children: const [
+                        Padding(
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 24, vertical: 12),
+                            child: Text('Sell by Amount')),
+                        Padding(
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 24, vertical: 12),
+                            child: Text('Sell by Volume'))
+                      ],
                     ),
                   ),
                   const SizedBox(height: 24),
                   if (_sellByAmount) ...[
                     TextFormField(
                       controller: _amountController,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
                       decoration: const InputDecoration(
                         labelText: 'Amount to Pay',
                         prefixText: '₦',
                         border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                        contentPadding:
+                            EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                       ),
-                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                          fontSize: 20, fontWeight: FontWeight.bold),
                       onChanged: (_) => setState(() {}),
                     ),
                     const SizedBox(height: 16),
@@ -360,7 +386,8 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                           const Text('Volume:', style: TextStyle(fontSize: 16)),
                           Text(
                             '${computedQty.toStringAsFixed((selected != null && (selected.unit.toLowerCase() == 'cyl' || selected.unit.toLowerCase() == 'cylinder')) ? 0 : 3)} ${selected?.unit ?? ''}',
-                            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                            style: const TextStyle(
+                                fontSize: 24, fontWeight: FontWeight.bold),
                           ),
                         ],
                       ),
@@ -368,14 +395,17 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                   ] else ...[
                     TextFormField(
                       controller: _qtyController,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
                       decoration: InputDecoration(
                         labelText: 'Volume to Dispense',
                         suffixText: selected?.unit ?? 'units',
                         border: const OutlineInputBorder(),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 16),
                       ),
-                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                          fontSize: 20, fontWeight: FontWeight.bold),
                       onChanged: (_) => setState(() {}),
                     ),
                     const SizedBox(height: 16),
@@ -389,10 +419,12 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text('Total Cost:', style: TextStyle(fontSize: 16)),
+                          const Text('Total Cost:',
+                              style: TextStyle(fontSize: 16)),
                           Text(
                             '₦${computedAmt.toStringAsFixed(2)}',
-                            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                            style: const TextStyle(
+                                fontSize: 24, fontWeight: FontWeight.bold),
                           ),
                         ],
                       ),
@@ -407,10 +439,21 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                               ? null
                               : () async {
                                   // Validate inputs
-                                  final amt = _sellByAmount ? (double.tryParse(_amountController.text) ?? 0.0) : computedAmt;
-                                  final qty = !_sellByAmount ? (double.tryParse(_qtyController.text) ?? 0.0) : computedQty;
-                                  if ((_sellByAmount && amt <= 0) || (!_sellByAmount && qty <= 0)) {
-                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid amount or volume')));
+                                  final amt = _sellByAmount
+                                      ? (double.tryParse(
+                                              _amountController.text) ??
+                                          0.0)
+                                      : computedAmt;
+                                  final qty = !_sellByAmount
+                                      ? (double.tryParse(_qtyController.text) ??
+                                          0.0)
+                                      : computedQty;
+                                  if ((_sellByAmount && amt <= 0) ||
+                                      (!_sellByAmount && qty <= 0)) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                            content: Text(
+                                                'Enter a valid amount or volume')));
                                     return;
                                   }
                                   if (isPumpOperator &&
@@ -427,170 +470,245 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                                   }
 
                                   // Show payment-method sheet and perform the sale using the selected method
-                                  final selectedPayment = await showModalBottomSheet<String?>(
+                                  final selectedPayment =
+                                      await showModalBottomSheet<String?>(
                                     context: context,
                                     isScrollControlled: true,
-                                    builder: (ctx) => PaymentMethodSheet(amount: computedAmt),
+                                    builder: (ctx) =>
+                                        PaymentMethodSheet(amount: computedAmt),
                                   );
 
-                                  if (selectedPayment == null) return; // user cancelled
+                                  if (selectedPayment == null)
+                                    return; // user cancelled
 
                                   setState(() => _processing = true);
                                   try {
-                                    final auth = Provider.of<AuthProvider>(context, listen: false);
-                                  final workerId = auth.currentUser?.id;
-                                  final workerName = auth.currentUser?.fullName ?? auth.currentUser?.email ?? 'Pump';
+                                    final auth = Provider.of<AuthProvider>(
+                                        context,
+                                        listen: false);
+                                    final workerId = auth.currentUser?.id;
+                                    final workerName =
+                                        auth.currentUser?.fullName ??
+                                            auth.currentUser?.email ??
+                                            'Pump';
 
-                                  final res = await retail.fuelSale(
-                                    productId: selected.id,
-                                    amountPaid: _sellByAmount ? (double.tryParse(_amountController.text) ?? 0.0) : null,
-                                    quantity: !_sellByAmount ? (double.tryParse(_qtyController.text) ?? 0.0) : null,
-                                    paymentMethod: selectedPayment,
-                                    workerId: workerId,
-                                    workerName: workerName,
-                                    storeId: business.id,
-                                    pumpId: _selectedPumpId,
-                                    pumpNumber: _selectedPumpNumber,
-                                    pumpName: _selectedPumpName,
-                                  );
-
-                                  // Immediate feedback
-                                  final offlineQueued =
-                                      res['offlineQueued'] == true;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        offlineQueued
-                                            ? 'Sale completed offline • queued for sync • ${res['quantity']} ${selected.unit} • ${res['total']}'
-                                            : 'Sale recorded • ${res['quantity']} ${selected.unit} • ${res['total']} (Cashier: $workerName)',
-                                      ),
-                                      backgroundColor: offlineQueued
-                                          ? Colors.orange
+                                    final res = await retail.fuelSale(
+                                      productId: selected.id,
+                                      amountPaid: _sellByAmount
+                                          ? (double.tryParse(
+                                                  _amountController.text) ??
+                                              0.0)
                                           : null,
-                                    ),
-                                  );
-                                  if (mounted) {
-                                    setState(() => _processing = false);
-                                  }
+                                      quantity: !_sellByAmount
+                                          ? (double.tryParse(
+                                                  _qtyController.text) ??
+                                              0.0)
+                                          : null,
+                                      paymentMethod: selectedPayment,
+                                      workerId: workerId,
+                                      workerName: workerName,
+                                      storeId: business.id,
+                                      pumpId: _selectedPumpId,
+                                      pumpNumber: _selectedPumpNumber,
+                                      pumpName: _selectedPumpName,
+                                      badgeId: retail.selectedPetroleumBadgeId,
+                                      badgeNumber:
+                                          retail.selectedPetroleumBadgeNumber,
+                                    );
 
-                                  // Build a sale map similar to SalesScreen
-                                  final pm = (selectedPayment.isNotEmpty) ? (selectedPayment[0].toUpperCase() + selectedPayment.substring(1)) : 'Cash';
+                                    // Immediate feedback
+                                    final offlineQueued =
+                                        res['offlineQueued'] == true;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          offlineQueued
+                                              ? 'Sale completed offline • queued for sync • ${res['quantity']} ${selected.unit} • ${res['total']}'
+                                              : 'Sale recorded • ${res['quantity']} ${selected.unit} • ${res['total']} (Cashier: $workerName)',
+                                        ),
+                                        backgroundColor: offlineQueued
+                                            ? Colors.orange
+                                            : null,
+                                      ),
+                                    );
+                                    if (mounted) {
+                                      setState(() => _processing = false);
+                                    }
 
-                                  final receiptItems =
-                                      ((res['items'] as List?) ?? const [])
-                                          .map((item) {
-                                    final map = item is Map
-                                        ? Map<String, dynamic>.from(item)
-                                        : <String, dynamic>{};
-                                    final quantity = map['quantity'] ??
-                                        map['qty'] ??
-                                        res['quantity'] ??
-                                        computedQty;
-                                    final unitPrice = map['unitPrice'] ??
-                                        map['price'] ??
-                                        selected.price;
-                                    final total =
-                                        map['total'] ?? res['total'] ?? computedAmt;
-                                    return {
-                                      ...map,
-                                      'name': map['name'] ??
-                                          map['productName'] ??
-                                          selected.name,
-                                      'productName': map['productName'] ??
-                                          map['name'] ??
-                                          selected.name,
-                                      'quantity': quantity,
-                                      'qty': quantity,
-                                      'unit': map['unit'] ?? selected.unit,
-                                      'unitPrice': unitPrice,
-                                      'price': unitPrice,
-                                      'total': total,
+                                    // Build a sale map similar to SalesScreen
+                                    final pm = (selectedPayment.isNotEmpty)
+                                        ? (selectedPayment[0].toUpperCase() +
+                                            selectedPayment.substring(1))
+                                        : 'Cash';
+
+                                    final receiptItems =
+                                        ((res['items'] as List?) ?? const [])
+                                            .map((item) {
+                                      final map = item is Map
+                                          ? Map<String, dynamic>.from(item)
+                                          : <String, dynamic>{};
+                                      final quantity = map['quantity'] ??
+                                          map['qty'] ??
+                                          res['quantity'] ??
+                                          computedQty;
+                                      final unitPrice = map['unitPrice'] ??
+                                          map['price'] ??
+                                          selected.price;
+                                      final total = map['total'] ??
+                                          res['total'] ??
+                                          computedAmt;
+                                      return {
+                                        ...map,
+                                        'name': map['name'] ??
+                                            map['productName'] ??
+                                            selected.name,
+                                        'productName': map['productName'] ??
+                                            map['name'] ??
+                                            selected.name,
+                                        'quantity': quantity,
+                                        'qty': quantity,
+                                        'unit': map['unit'] ?? selected.unit,
+                                        'unitPrice': unitPrice,
+                                        'price': unitPrice,
+                                        'total': total,
+                                      };
+                                    }).toList();
+
+                                    final saleMap = {
+                                      ...res,
+                                      'id': res['id'] ??
+                                          res['orderId'] ??
+                                          'SALE-${DateTime.now().millisecondsSinceEpoch}',
+                                      'orderId': res['orderId'] ?? res['id'],
+                                      'referenceId':
+                                          ReceiptUtility.generateReferenceId(
+                                              business.name),
+                                      'items': receiptItems,
+                                      'subtotal': res['total'],
+                                      'tax': 0.0,
+                                      'taxRate': 0.0,
+                                      'discount': 0.0,
+                                      'total': res['total'],
+                                      'totalAmount': res['total'],
+                                      'paymentMethod': pm,
+                                      'customerEmail': res['customerEmail'],
+                                      'customerName': res['customerName'],
+                                      'createdAt':
+                                          res['createdAt'] ?? DateTime.now(),
+                                      'cashier': workerName,
+                                      'workerName':
+                                          res['workerName'] ?? workerName,
+                                      'createdBy': workerId,
+                                      'workerId': res['workerId'] ?? workerId,
+                                      'businessLocation': business.address,
+                                      'pumpId':
+                                          res['pumpId'] ?? _selectedPumpId,
+                                      'pumpNumber': res['pumpNumber'] ??
+                                          _selectedPumpNumber,
+                                      'pumpName':
+                                          res['pumpName'] ?? _selectedPumpName,
+                                      'category': res['category'] ?? 'Fuel',
+                                      'status': res['status'] ?? 'completed',
+                                      'saleStatus':
+                                          res['saleStatus'] ?? 'completed',
+                                      'paymentStatus':
+                                          res['paymentStatus'] ?? 'paid',
                                     };
-                                  }).toList();
-
-                                  final saleMap = {
-                                    ...res,
-                                    'id': res['id'] ??
-                                        res['orderId'] ??
-                                        'SALE-${DateTime.now().millisecondsSinceEpoch}',
-                                    'orderId': res['orderId'] ?? res['id'],
-                                    'referenceId': ReceiptUtility.generateReferenceId(business.name),
-                                    'items': receiptItems,
-                                    'subtotal': res['total'],
-                                    'tax': 0.0,
-                                    'taxRate': 0.0,
-                                    'discount': 0.0,
-                                    'total': res['total'],
-                                    'totalAmount': res['total'],
-                                    'paymentMethod': pm,
-                                    'customerEmail': res['customerEmail'],
-                                    'customerName': res['customerName'],
-                                    'createdAt': res['createdAt'] ?? DateTime.now(),
-                                    'cashier': workerName,
-                                    'workerName': res['workerName'] ?? workerName,
-                                    'createdBy': workerId,
-                                    'workerId': res['workerId'] ?? workerId,
-                                    'businessLocation': business.address,
-                                    'pumpId': res['pumpId'] ?? _selectedPumpId,
-                                    'pumpNumber': res['pumpNumber'] ?? _selectedPumpNumber,
-                                    'pumpName': res['pumpName'] ?? _selectedPumpName,
-                                    'category': res['category'] ?? 'Fuel',
-                                    'status': res['status'] ?? 'completed',
-                                    'saleStatus': res['saleStatus'] ?? 'completed',
-                                    'paymentStatus': res['paymentStatus'] ?? 'paid',
-                                  }; 
 
                                     // Attempt to send receipt email and owner notification (if online)
                                     try {
-                                      final connectivity = Provider.of<ConnectivityProvider>(context, listen: false);
-                                      final isConnected = connectivity.isConnected;
+                                      final connectivity =
+                                          Provider.of<ConnectivityProvider>(
+                                              context,
+                                              listen: false);
+                                      final isConnected =
+                                          connectivity.isConnected;
 
                                       if (business != null && isConnected) {
-                                        final emailService = WebEmailReceiptService();
-                                        final customerEmail = saleMap['customerEmail'] as String?;
+                                        final emailService =
+                                            WebEmailReceiptService();
+                                        final customerEmail =
+                                            saleMap['customerEmail'] as String?;
 
-                                        if (customerEmail != null && customerEmail.isNotEmpty) {
+                                        if (customerEmail != null &&
+                                            customerEmail.isNotEmpty) {
                                           await emailService.sendReceiptEmail(
                                             recipientEmail: customerEmail,
-                                            receiptNumber: saleMap['id'].toString(),
+                                            receiptNumber:
+                                                saleMap['id'].toString(),
                                             businessName: business.name,
-                                            customerName: saleMap['customerName'] ?? 'Valued Customer',
-                                            totalAmount: (saleMap['total'] as double),
-                                            subtotal: (saleMap['subtotal'] as double),
+                                            customerName:
+                                                saleMap['customerName'] ??
+                                                    'Valued Customer',
+                                            totalAmount:
+                                                (saleMap['total'] as double),
+                                            subtotal:
+                                                (saleMap['subtotal'] as double),
                                             tax: (saleMap['tax'] as double),
                                             items: (saleMap['items'] as List)
                                                 .map((item) => {
-                                                  'name': item['productName'] ?? item['name'] ?? 'Item',
-                                                  'quantity': item['quantity'] ?? item['qty'] ?? 0,
-                                                  'price': item['unitPrice'] ?? item['price'] ?? 0,
-                                                })
+                                                      'name':
+                                                          item['productName'] ??
+                                                              item['name'] ??
+                                                              'Item',
+                                                      'quantity':
+                                                          item['quantity'] ??
+                                                              item['qty'] ??
+                                                              0,
+                                                      'price':
+                                                          item['unitPrice'] ??
+                                                              item['price'] ??
+                                                              0,
+                                                    })
                                                 .toList(),
                                             paymentMethod: pm,
                                             businessLogo: business.logoUrl,
                                             businessContact: business.phone,
                                           );
 
-                                          final ownerEmail = Provider.of<AuthProvider>(context, listen: false).currentUser?.email ?? business.email ?? '';
+                                          final ownerEmail =
+                                              Provider.of<AuthProvider>(context,
+                                                          listen: false)
+                                                      .currentUser
+                                                      ?.email ??
+                                                  business.email ??
+                                                  '';
                                           if (ownerEmail.isNotEmpty) {
-                                            final ownerSuccess = await emailService.sendSalesNotification(
+                                            final ownerSuccess =
+                                                await emailService
+                                                    .sendSalesNotification(
                                               ownerEmail: ownerEmail,
                                               businessName: business.name,
-                                              customerName: saleMap['customerName'] ?? 'Walk-in Customer',
+                                              customerName:
+                                                  saleMap['customerName'] ??
+                                                      'Walk-in Customer',
                                               customerEmail: customerEmail,
-                                              totalAmount: (saleMap['total'] as double),
+                                              totalAmount:
+                                                  (saleMap['total'] as double),
                                               items: (saleMap['items'] as List)
                                                   .map((item) => {
-                                                        'name': item['productName'] ?? item['name'] ?? 'Item',
-                                                        'quantity': item['quantity'] ?? item['qty'] ?? 0,
-                                                        'price': item['unitPrice'] ?? item['price'] ?? 0,
+                                                        'name': item[
+                                                                'productName'] ??
+                                                            item['name'] ??
+                                                            'Item',
+                                                        'quantity':
+                                                            item['quantity'] ??
+                                                                item['qty'] ??
+                                                                0,
+                                                        'price':
+                                                            item['unitPrice'] ??
+                                                                item['price'] ??
+                                                                0,
                                                       })
                                                   .toList(),
                                               paymentMethod: pm,
-                                              receiptNumber: saleMap['id'].toString(),
+                                              receiptNumber:
+                                                  saleMap['id'].toString(),
                                             );
 
                                             try {
-                                              final notif = NotificationAndEmailService();
+                                              final notif =
+                                                  NotificationAndEmailService();
                                               final businessId = business.id;
                                               await notif.logNotificationEvent(
                                                 businessId: businessId,
@@ -598,17 +716,21 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                                                 channel: 'email',
                                                 recipient: ownerEmail,
                                                 success: ownerSuccess,
-                                                orderId: saleMap['id'].toString(),
+                                                orderId:
+                                                    saleMap['id'].toString(),
                                               );
                                             } catch (e) {
-                                              debugPrint('[GasPump] Notification log failed: $e');
+                                              debugPrint(
+                                                  '[GasPump] Notification log failed: $e');
                                             }
                                           }
 
                                           if (mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
+                                            ScaffoldMessenger.of(context)
+                                                .showSnackBar(
                                               const SnackBar(
-                                                content: Text('Receipt and notification emails sent!'),
+                                                content: Text(
+                                                    'Receipt and notification emails sent!'),
                                                 backgroundColor: Colors.green,
                                                 duration: Duration(seconds: 2),
                                               ),
@@ -617,11 +739,14 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                                         }
                                       }
                                     } catch (e) {
-                                      debugPrint('[GasPump] Error sending emails: $e');
+                                      debugPrint(
+                                          '[GasPump] Error sending emails: $e');
                                       if (mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
                                           SnackBar(
-                                            content: Text('Sale completed but emails failed: $e'),
+                                            content: Text(
+                                                'Sale completed but emails failed: $e'),
                                             backgroundColor: Colors.orange,
                                           ),
                                         );
@@ -629,26 +754,36 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                                     }
 
                                     // Small delay to ensure any modal is dismissed
-                                    await Future.delayed(const Duration(milliseconds: 500));
+                                    await Future.delayed(
+                                        const Duration(milliseconds: 500));
 
                                     // Send order success alert to staff user if Pro
                                     try {
-                                      final businessProvider = Provider.of<BusinessProvider>(context, listen: false);
-                                      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                                      final businessProvider =
+                                          Provider.of<BusinessProvider>(context,
+                                              listen: false);
+                                      final authProvider =
+                                          Provider.of<AuthProvider>(context,
+                                              listen: false);
                                       final canSendOrderEmail =
                                           businessProvider.hasFeatureAccess(
                                         'email_receipts',
                                       );
-                                      final userEmail = authProvider.currentUser?.email;
+                                      final userEmail =
+                                          authProvider.currentUser?.email;
                                       if (canSendOrderEmail &&
                                           userEmail != null &&
                                           userEmail.isNotEmpty) {
-                                        await EmailService().sendOrderSuccessAlert(
+                                        await EmailService()
+                                            .sendOrderSuccessAlert(
                                           userEmail,
                                           {
                                             'order_type': 'fuel_sale',
-                                            'itemsCount': (res['items'] as List).length.toString(),
-                                            'total': (res['total'] ?? 0).toString(),
+                                            'itemsCount': (res['items'] as List)
+                                                .length
+                                                .toString(),
+                                            'total':
+                                                (res['total'] ?? 0).toString(),
                                           },
                                         );
                                       }
@@ -663,10 +798,12 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                                           invoiceGeneratedBeforeCheckout: true,
                                         );
                                       } else {
-                                        debugPrint('[GasPump] Skipping post-sale UI because widget is unmounted');
+                                        debugPrint(
+                                            '[GasPump] Skipping post-sale UI because widget is unmounted');
                                       }
                                     } catch (e) {
-                                      debugPrint('[GasPump] Receipt handling error: $e');
+                                      debugPrint(
+                                          '[GasPump] Receipt handling error: $e');
                                     }
 
                                     if (mounted) {
@@ -690,14 +827,21 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                                     // staring at a loader while Firestore
                                     // catches up.
                                   } catch (e) {
-                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sale failed: $e')));
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                            content: Text('Sale failed: $e')));
                                   } finally {
                                     if (mounted && _processing) {
                                       setState(() => _processing = false);
                                     }
                                   }
                                 },
-                          child: _processing ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator()) : const Text('Confirm Sale'),
+                          child: _processing
+                              ? const SizedBox(
+                                  height: 16,
+                                  width: 16,
+                                  child: CircularProgressIndicator())
+                              : const Text('Confirm Sale'),
                         ),
                       ),
                     ],

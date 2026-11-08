@@ -17,6 +17,7 @@ import '../../../../providers/customer_provider.dart';
 import '../../../../data/models/customer_model.dart';
 import '../../../../data/repositories/industry_specific/drink_repository_impl.dart';
 import '../../../../core/constants/routes.dart';
+import '../../../shared/payment_breakdown_dialog.dart';
 import '../../../../services/subscription_service.dart';
 import '../../../../core/utils/worker_permissions.dart';
 import '../../../../widgets/custom_button.dart';
@@ -909,10 +910,6 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
       final totalAmount =
           lines.fold<double>(0.0, (sum, line) => sum + line.lineTotal());
 
-      // Ask user for payment method
-      final paymentMethod = await _selectPaymentMethod();
-      if (paymentMethod == null) return;
-
       if (_editingInvoiceId != null) {
         final updatedInvoice = await provider.updateInvoice(
           invoiceId: _editingInvoiceId!,
@@ -932,23 +929,10 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
           workerName: authProvider.currentUser?.fullName,
           storeId: _selectedStoreId ?? authProvider.currentUser?.storeId,
         );
-
-        final saleMap = await provider.convertInvoiceToSale(
-          updatedInvoice.id,
-          paymentMethod,
-          workerId: authProvider.currentUser?.id,
-          workerName: authProvider.currentUser?.fullName,
-        );
-
         _clearCart();
         _tableLabelController.clear();
         _notesController.clear();
-
         if (!mounted) return;
-
-        await ReceiptManager.handlePostSale(context, saleMap);
-        if (!mounted) return;
-
         setState(() {
           _selectedCustomer = null;
           _editingInvoiceId = null;
@@ -958,19 +942,26 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              '${updatedInvoice.invoiceNumber} converted to sale successfully',
-            ),
-            backgroundColor: Colors.green,
+            content: Text('${updatedInvoice.invoiceNumber} updated. '
+                'Confirm order and bottle collection in Tabs & Invoices.'),
+            backgroundColor: Colors.brown.shade700,
           ),
         );
         if (Navigator.canPop(context)) {
-          Navigator.pop(context, {'convertedInvoiceId': updatedInvoice.id});
+          Navigator.pop(context, {'updatedInvoiceId': updatedInvoice.id});
         } else {
           Navigator.pushReplacementNamed(context, Routes.drinkTabs);
         }
         return;
       }
+
+      final payment = await showPaymentBreakdownDialog(
+        context,
+        title: 'Confirm bar payment',
+        amountDue: totalAmount,
+      );
+      if (payment == null) return;
+      final paymentMethod = payment.method;
 
       final createdSale = await provider.repository!.createSale({
         'businessId': businessId,
@@ -990,6 +981,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         'final_amount': totalAmount,
         'status': 'completed',
         'payment_method': paymentMethod,
+        'payment_breakdown': payment.toJson(),
         'sale_type': 'bar',
         'customer_id': _selectedCustomer?.id,
         'worker_id': authProvider.currentUser?.id,
@@ -1038,6 +1030,13 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         'totalAmount': totalAmount,
         'finalAmount': totalAmount,
         'paymentMethod': paymentMethod,
+        'paymentBreakdown': payment.toJson().entries
+            .where((entry) => entry.value > 0)
+            .map((entry) => {
+                  'method': entry.key,
+                  'amount': entry.value,
+                })
+            .toList(),
         'timestamp': DateTime.now().toIso8601String(),
         'customerId': _selectedCustomer?.id,
         'customerName': _resolvedCustomerName(),
@@ -1140,36 +1139,6 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         SnackBar(content: Text('Error: $e')),
       );
     }
-  }
-
-  Future<String?> _selectPaymentMethod() async {
-    final selection = await showModalBottomSheet<String>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: const Text('Cash'),
-              onTap: () => Navigator.pop(ctx, 'Cash'),
-            ),
-            ListTile(
-              title: const Text('Debit/Credit Card'),
-              onTap: () => Navigator.pop(ctx, 'Debit/Credit Card'),
-            ),
-            ListTile(
-              title: const Text('Digital Wallet'),
-              onTap: () => Navigator.pop(ctx, 'Digital Wallet'),
-            ),
-            ListTile(
-              title: const Text('Cancel'),
-              onTap: () => Navigator.pop(ctx),
-            ),
-          ],
-        ),
-      ),
-    );
-    return selection;
   }
 
   @override

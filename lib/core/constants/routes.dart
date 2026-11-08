@@ -213,6 +213,7 @@ class Routes {
   static const String hotelRooms = '/hotel/rooms';
   static const String hotelCreateRoom = '/hotel/rooms/create';
   static const String hotelBookings = '/hotel/bookings';
+  static const String hotelBookingHistory = '/hotel/bookings/history';
   static const String hotelCreateBooking = '/hotel/bookings/create';
   static const String hotelCheckIn = '/hotel/check-in';
   static const String hotelCheckOut = '/hotel/check-out';
@@ -237,6 +238,7 @@ class Routes {
   static const String drinkLicense = '/drink/license';
   static const String drinkOrders = '/drink/orders';
   static const String drinkOrdersHistory = '/drink/orders/history';
+  static const String drinkOrderPayment = '/drink/orders/payment';
   static const String drinkManage = '/drink/manage';
 
   // Industry-Specific Routes - Restaurant

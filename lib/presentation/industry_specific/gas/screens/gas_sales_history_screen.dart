@@ -12,6 +12,7 @@ import '../../../../providers/retail_provider.dart';
 import '../../../../services/managecare_api_client.dart';
 import '../../../../services/receipt_manager.dart';
 import '../utils/pump_row_mapper.dart';
+import 'petroleum_badge_context.dart';
 
 class GasSalesHistoryScreen extends StatefulWidget {
   const GasSalesHistoryScreen({super.key});
@@ -178,6 +179,7 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const PetroleumBadgeContextBar(),
             Row(
               children: [
                 Expanded(
@@ -257,7 +259,8 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
             const SizedBox(height: 12),
             Row(
               children: [
-                _metricCard('Revenue', 'NGN ${_totalAmount.toStringAsFixed(2)}'),
+                _metricCard(
+                    'Revenue', 'NGN ${_totalAmount.toStringAsFixed(2)}'),
                 const SizedBox(width: 8),
                 _metricCard('Volume', '${_totalVolume.toStringAsFixed(3)} L'),
                 const SizedBox(width: 8),
@@ -342,6 +345,10 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
         final saleId = sale['id']?.toString() ?? '';
         final totalAmount = _readDouble(sale['totalAmount']);
         final fuelVolume = _readDouble(sale['fuelVolume']);
+        final badgeSummary = petroleumBadgeAllocationSummary(
+          context.read<RetailProvider>().petroleumBadges,
+          sale['badgeAllocations'] ?? sale['badge_allocations'],
+        );
 
         return ListTile(
           onTap: saleId.isEmpty
@@ -372,7 +379,9 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
                   child: const CircleAvatar(child: Icon(Icons.receipt_long)),
                 ),
           title: Text(saleId.isEmpty ? 'Fuel sale' : 'Sale - $saleId'),
-          subtitle: Text(dateText),
+          subtitle: Text(
+            '$dateText${badgeSummary.isEmpty ? '' : '\nStock badge: $badgeSummary'}',
+          ),
           trailing: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             mainAxisAlignment: MainAxisAlignment.center,

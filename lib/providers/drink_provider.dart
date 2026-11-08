@@ -7,6 +7,7 @@ import '../services/notification_and_email_service.dart';
 import '../services/sync_service.dart';
 import '../data/local/database_helper.dart';
 import '../core/utils/connectivity_helper.dart';
+import '../data/models/payment_breakdown.dart';
 
 DateTime? _parseDrinkNullableDate(dynamic value) {
   if (value == null) return null;
@@ -142,7 +143,7 @@ class BarInvoice {
   final String businessId;
   final String invoiceNumber;
   final String invoiceType; // invoice, tab, table
-  final String status; // open, converted, cancelled
+  final String status; // open, confirmed, collected, converted, cancelled
   final String? customerId;
   final String customerName;
   final String? customerPhone;
@@ -161,6 +162,16 @@ class BarInvoice {
   final String? workerId;
   final String? workerName;
   final String? storeId;
+  final Map<String, double> paymentBreakdown;
+  final String? confirmedById;
+  final String? confirmedByName;
+  final DateTime? confirmedAt;
+  final String? collectedById;
+  final String? collectedByName;
+  final DateTime? collectedAt;
+  final String? paidById;
+  final String? paidByName;
+  final DateTime? paidAt;
 
   const BarInvoice({
     required this.id,
@@ -186,6 +197,16 @@ class BarInvoice {
     this.workerId,
     this.workerName,
     this.storeId,
+    this.paymentBreakdown = const {},
+    this.confirmedById,
+    this.confirmedByName,
+    this.confirmedAt,
+    this.collectedById,
+    this.collectedByName,
+    this.collectedAt,
+    this.paidById,
+    this.paidByName,
+    this.paidAt,
   });
 
   int get itemCount =>
@@ -237,6 +258,17 @@ class BarInvoice {
       workerId: json['workerId']?.toString(),
       workerName: json['workerName']?.toString(),
       storeId: json['storeId']?.toString(),
+      paymentBreakdown:
+          PaymentBreakdown.fromJson(json['paymentBreakdown']).toJson(),
+      confirmedById: json['confirmedById']?.toString(),
+      confirmedByName: json['confirmedByName']?.toString(),
+      confirmedAt: _parseDrinkNullableDate(json['confirmedAt']),
+      collectedById: json['collectedById']?.toString(),
+      collectedByName: json['collectedByName']?.toString(),
+      collectedAt: _parseDrinkNullableDate(json['collectedAt']),
+      paidById: json['paidById']?.toString(),
+      paidByName: json['paidByName']?.toString(),
+      paidAt: _parseDrinkNullableDate(json['paidAt']),
     );
   }
 
@@ -260,6 +292,16 @@ class BarInvoice {
     String? workerId,
     String? workerName,
     String? storeId,
+    Map<String, double>? paymentBreakdown,
+    String? confirmedById,
+    String? confirmedByName,
+    DateTime? confirmedAt,
+    String? collectedById,
+    String? collectedByName,
+    DateTime? collectedAt,
+    String? paidById,
+    String? paidByName,
+    DateTime? paidAt,
   }) {
     return BarInvoice(
       id: id,
@@ -285,6 +327,16 @@ class BarInvoice {
       workerId: workerId ?? this.workerId,
       workerName: workerName ?? this.workerName,
       storeId: storeId ?? this.storeId,
+      paymentBreakdown: paymentBreakdown ?? this.paymentBreakdown,
+      confirmedById: confirmedById ?? this.confirmedById,
+      confirmedByName: confirmedByName ?? this.confirmedByName,
+      confirmedAt: confirmedAt ?? this.confirmedAt,
+      collectedById: collectedById ?? this.collectedById,
+      collectedByName: collectedByName ?? this.collectedByName,
+      collectedAt: collectedAt ?? this.collectedAt,
+      paidById: paidById ?? this.paidById,
+      paidByName: paidByName ?? this.paidByName,
+      paidAt: paidAt ?? this.paidAt,
     );
   }
 
@@ -323,6 +375,16 @@ class BarInvoice {
       'workerId': workerId,
       'workerName': workerName,
       'storeId': storeId,
+      'paymentBreakdown': paymentBreakdown,
+      'confirmedById': confirmedById,
+      'confirmedByName': confirmedByName,
+      'confirmedAt': confirmedAt,
+      'collectedById': collectedById,
+      'collectedByName': collectedByName,
+      'collectedAt': collectedAt,
+      'paidById': paidById,
+      'paidByName': paidByName,
+      'paidAt': paidAt,
     };
   }
 }
@@ -869,32 +931,6 @@ class DrinkProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _restoreStockConsumption(List<OrderLine> lines) {
-    for (final line in lines) {
-      final drink = getDrinkById(line.drinkId);
-      final stock = getStock(line.drinkId);
-
-      if (drink == null || stock == null) {
-        // If drink or stock not found, we can't restore, but this shouldn't happen
-        debugPrint(
-            'Warning: Cannot restore stock for ${line.drinkId} - drink or stock not found');
-        continue;
-      }
-
-      // Add back the bottles to stock
-      var toRestore = line.quantityBottles;
-
-      // First, try to add to existing bottles
-      stock.bottles += toRestore;
-
-      // If we have more than a carton, convert to cartons
-      while (stock.bottles >= drink.bottlesPerCarton) {
-        stock.cartons += 1;
-        stock.bottles -= drink.bottlesPerCarton;
-      }
-    }
-  }
-
   void updateOrderStatus(String orderId, String status) {
     final o = orders.firstWhere((x) => x.id == orderId);
     o.status = status;
@@ -1200,8 +1236,8 @@ class DrinkProvider extends ChangeNotifier {
     if (invoice == null) {
       throw StateError('Invoice not found');
     }
-    if (invoice.status == 'converted') {
-      throw StateError('Converted invoices cannot be edited');
+    if (invoice.status != 'open') {
+      throw StateError('Only open tabs can be edited');
     }
     if (lines.isEmpty) {
       throw StateError('Cannot save an invoice without items');
@@ -1235,9 +1271,18 @@ class DrinkProvider extends ChangeNotifier {
       discount: safeDiscount,
       total: total,
       createdAt: invoice.createdAt,
-      workerId: workerId ?? invoice.workerId,
-      workerName: workerName ?? invoice.workerName,
+      workerId: invoice.workerId,
+      workerName: invoice.workerName,
       storeId: storeId ?? invoice.storeId,
+      confirmedById: invoice.confirmedById,
+      confirmedByName: invoice.confirmedByName,
+      confirmedAt: invoice.confirmedAt,
+      collectedById: invoice.collectedById,
+      collectedByName: invoice.collectedByName,
+      collectedAt: invoice.collectedAt,
+      paidById: invoice.paidById,
+      paidByName: invoice.paidByName,
+      paidAt: invoice.paidAt,
     );
 
     await _persistInvoice(updatedInvoice);
@@ -1253,13 +1298,101 @@ class DrinkProvider extends ChangeNotifier {
     return updatedInvoice;
   }
 
+  Future<BarInvoice> confirmInvoice(
+    String invoiceId, {
+    String? workerId,
+    String? workerName,
+  }) async {
+    final invoice = getInvoiceById(invoiceId);
+    if (invoice == null) throw StateError('Invoice not found');
+    if (invoice.status != 'open') {
+      throw StateError('Only open orders can be confirmed');
+    }
+
+    final confirmed = invoice.copyWith(
+      status: 'confirmed',
+      confirmedById: workerId,
+      confirmedByName: workerName,
+      confirmedAt: DateTime.now(),
+    );
+    await _persistInvoice(confirmed);
+    final index = invoices.indexWhere((item) => item.id == invoice.id);
+    invoices[index] = confirmed;
+    notifyListeners();
+    return confirmed;
+  }
+
+  Future<BarInvoice> markInvoiceCollected(
+    String invoiceId, {
+    String? workerId,
+    String? workerName,
+  }) async {
+    final invoice = getInvoiceById(invoiceId);
+    if (invoice == null) throw StateError('Invoice not found');
+    if (invoice.status != 'confirmed') {
+      throw StateError('Confirm the order before recording bottle collection');
+    }
+
+    final stockSnapshots = <String, List<int>>{};
+    for (final line in invoice.lines) {
+      final stock = getStock(line.drinkId);
+      if (stock == null) {
+        throw StateError('Stock item not found for ${line.drinkId}');
+      }
+      stockSnapshots.putIfAbsent(
+        line.drinkId,
+        () => [stock.bottles, stock.cartons],
+      );
+    }
+    final collected = invoice.copyWith(
+      status: 'collected',
+      collectedById: workerId,
+      collectedByName: workerName,
+      collectedAt: DateTime.now(),
+    );
+
+    try {
+      _applyStockConsumption(invoice.lines);
+      for (final drinkId in stockSnapshots.keys) {
+        final stock = getStock(drinkId);
+        if (stock != null) await _persistStockItem(drinkId, stock);
+      }
+      await _persistInvoice(collected);
+    } catch (error) {
+      for (final entry in stockSnapshots.entries) {
+        final stock = getStock(entry.key);
+        if (stock == null) continue;
+        stock.bottles = entry.value[0];
+        stock.cartons = entry.value[1];
+      }
+      for (final drinkId in stockSnapshots.keys) {
+        final stock = getStock(drinkId);
+        if (stock != null) {
+          try {
+            await _persistStockItem(drinkId, stock);
+          } catch (restoreError) {
+            debugPrint(
+              '[DrinkProvider] Failed to restore stock for $drinkId: $restoreError',
+            );
+          }
+        }
+      }
+      rethrow;
+    }
+
+    final index = invoices.indexWhere((item) => item.id == invoice.id);
+    invoices[index] = collected;
+    notifyListeners();
+    return collected;
+  }
+
   Future<BarInvoice> reopenInvoice(String invoiceId) async {
     final invoice = getInvoiceById(invoiceId);
     if (invoice == null) {
       throw StateError('Invoice not found');
     }
-    if (invoice.status == 'converted') {
-      throw StateError('Converted invoices cannot be reopened');
+    if (invoice.status != 'cancelled') {
+      throw StateError('Only cancelled invoices can be reopened');
     }
 
     final reopenedInvoice = BarInvoice(
@@ -1301,6 +1434,7 @@ class DrinkProvider extends ChangeNotifier {
   Future<Map<String, dynamic>> convertInvoiceToSale(
     String invoiceId,
     String paymentMethod, {
+    Map<String, double> paymentBreakdown = const {},
     String? workerId,
     String? workerName,
   }) async {
@@ -1318,6 +1452,13 @@ class DrinkProvider extends ChangeNotifier {
     }
     if (invoice.status == 'cancelled') {
       throw StateError('Cancelled invoices cannot be converted');
+    }
+    if (invoice.status != 'collected') {
+      throw StateError('Confirm bottle collection before taking payment');
+    }
+    final payment = PaymentBreakdown.fromJson(paymentBreakdown);
+    if (!payment.isValid || (payment.total - invoice.total).abs() > 0.01) {
+      throw ArgumentError('Payment total must equal the invoice total');
     }
 
     final items = invoice.lines.map((line) {
@@ -1337,9 +1478,6 @@ class DrinkProvider extends ChangeNotifier {
       if (drink == null || stock == null) {
         throw StateError('Stock item not found for ${line.drinkId}');
       }
-      if (stock.totalBottles(drink.bottlesPerCarton) < line.quantityBottles) {
-        throw StateError('Insufficient stock for ${drink.name}');
-      }
     }
 
     if (repository == null) {
@@ -1358,6 +1496,7 @@ class DrinkProvider extends ChangeNotifier {
       'finalAmount': invoice.total,
       'status': 'completed',
       'paymentMethod': paymentMethod,
+      'paymentBreakdown': payment.toJson(),
       'customerId': invoice.customerId,
       'workerId': workerId ?? invoice.workerId,
       'workerName': workerName ?? invoice.workerName,
@@ -1368,25 +1507,15 @@ class DrinkProvider extends ChangeNotifier {
     final created = await repository!.createSale(saleData);
     final saleId = created['id']?.toString() ?? '';
 
-    // Deduct stock when invoice is converted to sale (payment received)
-    _applyStockConsumption(invoice.lines);
-    for (final line in invoice.lines) {
-      final stock = getStock(line.drinkId);
-      if (stock != null) {
-        try {
-          await _persistStockItem(line.drinkId, stock);
-        } catch (e) {
-          debugPrint(
-              '[DrinkProvider] Stock mirror failed after sale ${line.drinkId}: $e');
-        }
-      }
-    }
-
     final convertedInvoice = invoice.copyWith(
       status: 'converted',
       convertedAt: DateTime.now(),
       linkedSaleId: saleId,
       paymentMethod: paymentMethod,
+      paymentBreakdown: payment.toJson(),
+      paidById: workerId,
+      paidByName: workerName,
+      paidAt: DateTime.now(),
     );
 
     await _persistInvoice(convertedInvoice);
@@ -1417,6 +1546,15 @@ class DrinkProvider extends ChangeNotifier {
       'totalAmount': invoice.total,
       'finalAmount': invoice.total,
       'paymentMethod': paymentMethod,
+      'paymentBreakdown': payment
+          .toJson()
+          .entries
+          .where((entry) => entry.value > 0)
+          .map((entry) => {
+                'method': entry.key,
+                'amount': entry.value,
+              })
+          .toList(),
       'timestamp': DateTime.now().toIso8601String(),
       'customerName': invoice.customerName,
       'customerId': invoice.customerId,
@@ -1435,6 +1573,9 @@ class DrinkProvider extends ChangeNotifier {
   Future<void> cancelInvoice(String invoiceId) async {
     final invoice = getInvoiceById(invoiceId);
     if (invoice == null || invoice.status == 'converted') return;
+    if (invoice.status == 'collected') {
+      throw StateError('Collected orders cannot be cancelled');
+    }
     if (_businessId == null || _businessId!.isEmpty) return;
 
     final cancelledInvoice = invoice.copyWith(status: 'cancelled');

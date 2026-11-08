@@ -4,6 +4,8 @@ abstract class HotelRepository {
   Future<Map<String, dynamic>> createRoom(Map<String, dynamic> room);
   Future<Map<String, dynamic>> updateRoom(
       String businessId, String roomId, Map<String, dynamic> room);
+  Future<void> updateRoomStatus(
+      String businessId, String roomId, String status);
   Future<List<Map<String, dynamic>>> fetchGuests(String businessId);
 
   /// Fetch reservations for the given business.

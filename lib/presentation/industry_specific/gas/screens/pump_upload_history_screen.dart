@@ -8,12 +8,14 @@ import '../../../../core/constants/routes.dart';
 import '../../../../core/utils/worker_permissions.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
+import '../../../../providers/retail_provider.dart';
 import '../../../../services/managecare_api_client.dart';
 import '../utils/pump_config_cache.dart';
 import '../utils/pump_row_mapper.dart';
 import '../utils/pump_upload_offline_queue.dart';
 import 'disputed_pump_uploads_screen.dart';
 import 'pump_daily_upload_screen.dart';
+import 'petroleum_badge_context.dart';
 
 class PumpUploadHistoryScreen extends StatefulWidget {
   const PumpUploadHistoryScreen({super.key});
@@ -62,7 +64,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
         yield await PumpUploadOfflineQueue.pendingCount(businessId);
         await Future.delayed(_pollInterval);
       }
-    })().asBroadcastStream();
+    })()
+        .asBroadcastStream();
     return _pendingCountCache!;
   }
 
@@ -195,12 +198,14 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
         }
         await Future.delayed(_pollInterval);
       }
-    })().asBroadcastStream();
+    })()
+        .asBroadcastStream();
     return _pumpsCache!;
   }
 
   Stream<List<Map<String, dynamic>>> _uploadsStream(String businessId) {
-    final key = '$businessId|${_startDate?.toIso8601String()}|${_endDate?.toIso8601String()}';
+    final key =
+        '$businessId|${_startDate?.toIso8601String()}|${_endDate?.toIso8601String()}';
     if (_uploadsCacheKey == key && _uploadsCache != null) return _uploadsCache!;
     _uploadsCacheKey = key;
     _uploadsCache = (() async* {
@@ -223,7 +228,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
         }
         await Future.delayed(_pollInterval);
       }
-    })().asBroadcastStream();
+    })()
+        .asBroadcastStream();
     return _uploadsCache!;
   }
 
@@ -842,6 +848,10 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
           ? const Center(child: Text('No business selected'))
           : Column(
               children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: PetroleumBadgeContextBar(),
+                ),
                 StreamBuilder<int>(
                   stream: _pendingUploadCountStream(businessId),
                   builder: (context, snapshot) {
@@ -1096,6 +1106,17 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                       <String>[];
                               final discrepancySummary =
                                   (data['discrepancySummary'] as String?) ?? '';
+                              final badgeSummary =
+                                  petroleumBadgeAllocationSummary(
+                                context.read<RetailProvider>().petroleumBadges,
+                                data['badgeAllocations'] ??
+                                    data['badge_allocations'],
+                              );
+                              final badgeLabel = badgeSummary.isNotEmpty
+                                  ? 'Stock badge: $badgeSummary'
+                                  : (data['selectedBadgeCode'] == null
+                                      ? ''
+                                      : 'Selected badge context: ${data['selectedBadgeCode']}');
                               final theme = Theme.of(context);
                               final colorScheme = theme.colorScheme;
                               final hasMismatch = _showMismatchBadge &&
@@ -1145,7 +1166,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                         const Padding(
                                           padding: EdgeInsets.only(left: 6),
                                           child: Tooltip(
-                                            message: 'Edited during manager review',
+                                            message:
+                                                'Edited during manager review',
                                             child: Icon(
                                               Icons.edit_note_outlined,
                                               size: 18,
@@ -1158,7 +1180,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                         status == 'pending_review'
                                             ? () => Navigator.pushNamed(
                                                   context,
-                                                  Routes.petroleumPumpUploadReview,
+                                                  Routes
+                                                      .petroleumPumpUploadReview,
                                                   arguments: {
                                                     'uploadId': data['id'],
                                                   },
@@ -1169,8 +1192,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                   ),
                                   subtitle: Text(
                                     uploadedAt == null
-                                        ? 'Operator: ${data['workerName'] ?? 'N/A'}'
-                                        : '${DateFormat.yMd().add_jm().format(uploadedAt)}\nOperator: ${data['workerName'] ?? 'N/A'}',
+                                        ? 'Operator: ${data['workerName'] ?? 'N/A'}${badgeLabel.isEmpty ? '' : '\n$badgeLabel'}'
+                                        : '${DateFormat.yMd().add_jm().format(uploadedAt)}\nOperator: ${data['workerName'] ?? 'N/A'}${badgeLabel.isEmpty ? '' : '\n$badgeLabel'}',
                                   ),
                                   trailing: SizedBox(
                                     width: 112,

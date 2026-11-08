@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/utils/currency.dart';
 import '../../../../core/utils/worker_permissions.dart';
+import '../../../../core/constants/routes.dart';
 
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
@@ -479,6 +480,22 @@ class _RoomListScreenState extends State<RoomListScreen> {
                     const SizedBox(height: 30),
                     
                     // Quick Actions
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          Navigator.of(this.context).pushNamed(
+                            Routes.hotelBookingHistory,
+                            arguments: {'roomId': room.id},
+                          );
+                        },
+                        icon: const Icon(Icons.history),
+                        label: const Text('View Booking History'),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
                     if(canManageRooms && room.status == 'available')
                     SizedBox(
                       width: double.infinity,
@@ -490,35 +507,62 @@ class _RoomListScreenState extends State<RoomListScreen> {
                           elevation: 0,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
                         ),
-                        onPressed: () {
-                          // Logic to mark as maintenance
-                          provider.updateRoomStatus(room.id, 'maintenance');
-                          Navigator.pop(context);
+                        onPressed: () async {
+                          try {
+                            await provider.updateRoomStatus(
+                                room.id, 'maintenance');
+                            if (context.mounted) Navigator.pop(context);
+                          } catch (error) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content:
+                                      Text('Could not update room status: $error'),
+                                ),
+                              );
+                            }
+                          }
                         },
                         icon: const Icon(Icons.build_circle_outlined),
                         label: const Text('Mark for Maintenance'),
                       ),
                     ),
-                     if(canManageRooms && room.status == 'maintenance')
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green[50],
-                          foregroundColor: Colors.green,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+                    if (canManageRooms && room.status == 'maintenance')
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green[50],
+                            foregroundColor: Colors.green,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          onPressed: () async {
+                            try {
+                              await provider.updateRoomStatus(
+                                room.id,
+                                'available',
+                              );
+                              if (context.mounted) Navigator.pop(context);
+                            } catch (error) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Could not update room status: $error',
+                                    ),
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                          icon: const Icon(Icons.check_circle_outline),
+                          label: const Text('Mark Available'),
                         ),
-                        onPressed: () {
-                          // Logic to mark as available
-                           provider.updateRoomStatus(room.id, 'available');
-                           Navigator.pop(context);
-                        },
-                        icon: const Icon(Icons.check_circle_outline),
-                        label: const Text('Mark Available'),
                       ),
-                    ),
                   ],
                 ),
               ),

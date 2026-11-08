@@ -164,17 +164,18 @@ module.exports = function(pool) {
         COALESCE(SUM(s.final_amount), 0)::DECIMAL(12,2) as total_revenue,
         COALESCE(AVG(s.final_amount), 0)::DECIMAL(12,2) as average_sale,
         COALESCE(SUM(s.discount_amount), 0)::DECIMAL(12,2) as total_discounts,
-        JSONB_OBJECT_AGG(
-          COALESCE(s.payment_method, 'unknown'),
-          COALESCE(pmt.total, 0)
-        ) as payment_breakdown
+        (SELECT COALESCE(jsonb_object_agg(method, total), '{}'::jsonb) FROM (
+          SELECT COALESCE(component->>'method', sx.payment_method, 'unknown') AS method,
+                 SUM(COALESCE(NULLIF(component->>'amount','')::numeric, sx.final_amount))::DECIMAL(12,2) AS total
+          FROM sales sx
+          LEFT JOIN LATERAL jsonb_array_elements(
+            CASE WHEN jsonb_typeof(sx.payment_breakdown) = 'array' THEN sx.payment_breakdown ELSE '[]'::jsonb END
+          ) component ON true
+          WHERE sx.business_id = $1 AND sx.status = 'completed'
+            AND ${dateFilter.replaceAll('s.', 'sx.')}${saleTypeFilter.replaceAll('s.', 'sx.')}
+          GROUP BY method
+        ) payment_totals) AS payment_breakdown
       FROM sales s
-      LEFT JOIN (
-        SELECT payment_method, SUM(final_amount)::DECIMAL(12,2) as total
-        FROM sales s
-        WHERE business_id = $1 AND ${dateFilter}${saleTypeFilter}
-        GROUP BY payment_method
-      ) pmt ON pmt.payment_method = s.payment_method
       WHERE s.business_id = $1 AND s.status = 'completed' AND ${dateFilter}${saleTypeFilter}
       GROUP BY s.business_id
     `, params);
@@ -463,6 +464,18 @@ module.exports = function(pool) {
 
     // Insert sale items
     if (items && Array.isArray(items) && items.length > 0) {
+      const collectedBarInvoice = saleType === 'bar'
+        ? await client.query(
+          `SELECT 1 FROM bar_invoices
+           WHERE id = $1 AND business_id = $2
+             AND status IN ('collected', 'converted')
+           LIMIT 1`,
+          [sale.id, businessId]
+        )
+        : null;
+      const inventoryAlreadyConsumed =
+        (collectedBarInvoice?.rows.length ?? 0) > 0;
+
       for (const item of items) {
         const productId = item.product_id && UUID_RE.test(item.product_id)
           ? item.product_id
@@ -494,7 +507,10 @@ module.exports = function(pool) {
 
         // Fuel stock is deducted by the database trigger so the same rule
         // also covers legacy clients writing sale_items through /rest/v1.
-        if (productId && !fuelProductIds.has(productId) && !fuelPattern.test(saleType)) {
+        if (productId &&
+            !inventoryAlreadyConsumed &&
+            !fuelProductIds.has(productId) &&
+            !fuelPattern.test(saleType)) {
           const qty = quantity * multiplier;
           await client.query(
             'UPDATE inventory SET quantity = GREATEST(0, quantity - $1), updated_at = NOW() WHERE id = $2 AND business_id = $3',
@@ -704,4 +720,3 @@ function normalizePaymentBreakdownParam(value) {
   }
   return JSON.stringify(value);
 }
-

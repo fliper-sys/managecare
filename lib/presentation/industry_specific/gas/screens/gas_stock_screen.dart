@@ -10,6 +10,7 @@ import '../../../../providers/business_provider.dart';
 import '../../../../providers/retail_provider.dart';
 import '../../../../services/managecare_api_client.dart';
 import '../../../../core/utils/worker_permissions.dart';
+import 'petroleum_badge_context.dart';
 
 class GasStockScreen extends StatefulWidget {
   const GasStockScreen({super.key});
@@ -93,7 +94,8 @@ class _GasStockScreenState extends State<GasStockScreen> {
     if (businessId == null || businessId.isEmpty) return;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => _FuelStockProcurementHistoryScreen(businessId: businessId),
+        builder: (_) =>
+            _FuelStockProcurementHistoryScreen(businessId: businessId),
       ),
     );
   }
@@ -212,7 +214,8 @@ class _GasStockScreenState extends State<GasStockScreen> {
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
-                      decoration: const InputDecoration(labelText: 'Cost price'),
+                      decoration:
+                          const InputDecoration(labelText: 'Cost price'),
                     ),
                     const SizedBox(height: 12),
                     TextField(
@@ -257,15 +260,15 @@ class _GasStockScreenState extends State<GasStockScreen> {
     }
 
     final newProduct = Product(
-        id: '',
-        name: name,
-        price: price,
-        cost: cost,
-        stock: stock,
-        category: category,
-        emoji: unit == 'cyl' ? '🛢' : '⛽',
-        unit: unit,
-      );
+      id: '',
+      name: name,
+      price: price,
+      cost: cost,
+      stock: stock,
+      category: category,
+      emoji: unit == 'cyl' ? '🛢' : '⛽',
+      unit: unit,
+    );
     String? productId;
     try {
       productId = await context.read<RetailProvider>().addProduct(newProduct);
@@ -378,7 +381,8 @@ class _GasStockScreenState extends State<GasStockScreen> {
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
-                      decoration: const InputDecoration(labelText: 'Cost price'),
+                      decoration:
+                          const InputDecoration(labelText: 'Cost price'),
                     ),
                   ],
                 ),
@@ -414,25 +418,25 @@ class _GasStockScreenState extends State<GasStockScreen> {
 
     final nextStock = addToStock ? product.stock + quantity : quantity;
     final updatedProduct = Product(
-        id: product.id,
-        name: product.name,
-        price: price,
-        cost: cost,
-        wholesalePrice: product.wholesalePrice,
-        stock: nextStock,
-        category: product.category,
-        imageUrl: product.imageUrl,
-        barcode: product.barcode,
-        emoji: product.emoji,
-        unit: product.unit,
-        saleUnit: product.resolvedSaleUnit,
-        saleUnitMultiplier: product.resolvedSaleUnitMultiplier,
-      );
+      id: product.id,
+      name: product.name,
+      price: price,
+      cost: cost,
+      wholesalePrice: product.wholesalePrice,
+      stock: nextStock,
+      category: product.category,
+      imageUrl: product.imageUrl,
+      barcode: product.barcode,
+      emoji: product.emoji,
+      unit: product.unit,
+      saleUnit: product.resolvedSaleUnit,
+      saleUnitMultiplier: product.resolvedSaleUnitMultiplier,
+    );
     try {
       await context.read<RetailProvider>().updateProduct(
-        product.id,
-        updatedProduct,
-      );
+            product.id,
+            updatedProduct,
+          );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -455,7 +459,8 @@ class _GasStockScreenState extends State<GasStockScreen> {
     if (!historyRecorded && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Stock was updated, but its history could not be saved.'),
+          content:
+              Text('Stock was updated, but its history could not be saved.'),
         ),
       );
     }
@@ -476,7 +481,8 @@ class _GasStockScreenState extends State<GasStockScreen> {
     final auth = context.watch<AuthProvider>();
     final role = auth.currentUser?.role ?? '';
     final permissions = auth.currentUser?.permissions ?? [];
-    final canAccessFuelStock = WorkerPermissions.canAccessFuelStockForUser(role, permissions);
+    final canAccessFuelStock =
+        WorkerPermissions.canAccessFuelStockForUser(role, permissions);
 
     if (!canAccessFuelStock) {
       return Scaffold(
@@ -492,7 +498,9 @@ class _GasStockScreenState extends State<GasStockScreen> {
               children: const [
                 Icon(Icons.lock_outline, size: 64, color: Colors.grey),
                 SizedBox(height: 12),
-                Text('Access denied', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                Text('Access denied',
+                    style:
+                        TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 SizedBox(height: 8),
                 Text('You do not have permission to view Fuel Stock.'),
               ],
@@ -504,15 +512,13 @@ class _GasStockScreenState extends State<GasStockScreen> {
 
     return Consumer<RetailProvider>(
       builder: (context, retail, _) {
-        final fuelProducts = retail.products
-            .where(_isFuelProduct)
-            .where((product) {
-              if (_query.isEmpty) return true;
-              return product.name.toLowerCase().contains(_query) ||
-                  product.category.toLowerCase().contains(_query);
-            })
-            .toList()
-          ..sort((a, b) => a.name.compareTo(b.name));
+        final fuelProducts =
+            retail.products.where(_isFuelProduct).where((product) {
+          if (_query.isEmpty) return true;
+          return product.name.toLowerCase().contains(_query) ||
+              product.category.toLowerCase().contains(_query);
+        }).toList()
+              ..sort((a, b) => a.name.compareTo(b.name));
 
         final totalStock =
             fuelProducts.fold<double>(0.0, (sum, item) => sum + item.stock);
@@ -551,6 +557,7 @@ class _GasStockScreenState extends State<GasStockScreen> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(16),
               children: [
+                const PetroleumBadgeContextBar(),
                 _GasHeader(
                   products: fuelProducts.length,
                   fuelStock: totalStock,
@@ -1056,54 +1063,58 @@ class _FuelStockProcurementHistoryScreenState
           }
 
           return RefreshIndicator(
-            onRefresh: _refresh,
-            child: ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: rows.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              final data = rows[index];
-              final metadata = data['metadata'];
-              if (metadata is Map) {
-                for (final entry in metadata.entries) {
-                  data.putIfAbsent(entry.key.toString(), () => entry.value);
-                }
-              }
-              final createdAt = _readDate(data['created_at']);
-              final quantityChange = _readDouble(data, 'quantity_change');
-              final previousStock = _readDouble(data, 'previous_stock');
-              final nextStock = _readDouble(data, 'next_stock');
-              final previousPrice = _readDouble(data, 'previous_price');
-              final nextPrice = _readDouble(data, 'next_price');
-              final unit = data['unit']?.toString() ?? '';
-              final recordedBy = (data['performed_by_name'] ?? data['performed_by_id'])?.toString() ?? '';
+              onRefresh: _refresh,
+              child: ListView.separated(
+                padding: const EdgeInsets.all(16),
+                itemCount: rows.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (context, index) {
+                  final data = rows[index];
+                  final metadata = data['metadata'];
+                  if (metadata is Map) {
+                    for (final entry in metadata.entries) {
+                      data.putIfAbsent(entry.key.toString(), () => entry.value);
+                    }
+                  }
+                  final createdAt = _readDate(data['created_at']);
+                  final quantityChange = _readDouble(data, 'quantity_change');
+                  final previousStock = _readDouble(data, 'previous_stock');
+                  final nextStock = _readDouble(data, 'next_stock');
+                  final previousPrice = _readDouble(data, 'previous_price');
+                  final nextPrice = _readDouble(data, 'next_price');
+                  final unit = data['unit']?.toString() ?? '';
+                  final recordedBy =
+                      (data['performed_by_name'] ?? data['performed_by_id'])
+                              ?.toString() ??
+                          '';
 
-              return Card(
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: AppColors.primary.withOpacity(0.12),
-                    child: const Icon(Icons.inventory_2_outlined),
-                  ),
-                  title: Text(data['product_name']?.toString() ?? 'Fuel'),
-                  subtitle: Text(
-                    '${data['action'] ?? data['change_type'] ?? 'stock_change'}'
-                    '${createdAt == null ? '' : ' • ${createdAt.toLocal()}'}'
-                    '${recordedBy.isNotEmpty ? '\nBy: $recordedBy' : ''}'
-                    '\nStock: ${previousStock.toStringAsFixed(2)} → ${nextStock.toStringAsFixed(2)} $unit\n'
-                    'Price: ${formatCurrency(previousPrice)} → ${formatCurrency(nextPrice)}',
-                  ),
-                  isThreeLine: true,
-                  trailing: Text(
-                    '${quantityChange >= 0 ? '+' : ''}${quantityChange.toStringAsFixed(2)}',
-                    style: TextStyle(
-                      color: quantityChange >= 0 ? Colors.green : Colors.red,
-                      fontWeight: FontWeight.w800,
+                  return Card(
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: AppColors.primary.withOpacity(0.12),
+                        child: const Icon(Icons.inventory_2_outlined),
+                      ),
+                      title: Text(data['product_name']?.toString() ?? 'Fuel'),
+                      subtitle: Text(
+                        '${data['action'] ?? data['change_type'] ?? 'stock_change'}'
+                        '${createdAt == null ? '' : ' • ${createdAt.toLocal()}'}'
+                        '${recordedBy.isNotEmpty ? '\nBy: $recordedBy' : ''}'
+                        '\nStock: ${previousStock.toStringAsFixed(2)} → ${nextStock.toStringAsFixed(2)} $unit\n'
+                        'Price: ${formatCurrency(previousPrice)} → ${formatCurrency(nextPrice)}',
+                      ),
+                      isThreeLine: true,
+                      trailing: Text(
+                        '${quantityChange >= 0 ? '+' : ''}${quantityChange.toStringAsFixed(2)}',
+                        style: TextStyle(
+                          color:
+                              quantityChange >= 0 ? Colors.green : Colors.red,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              );
-            },
-          ));
+                  );
+                },
+              ));
         },
       ),
     );

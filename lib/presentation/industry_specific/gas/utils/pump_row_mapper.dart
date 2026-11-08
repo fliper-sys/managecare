@@ -51,6 +51,9 @@ Map<String, dynamic> pumpUploadRowToJson(Map<String, dynamic> row) => {
       'discrepancySummary': row['discrepancy_summary'],
       'uploadFingerprint': row['upload_fingerprint'],
       'saleId': row['sale_id'],
+      'badgeAllocations': row['badge_allocations'],
+      'selectedBadgeId': row['selected_badge_id'],
+      'selectedBadgeCode': row['selected_badge_code'],
       'status': row['status'],
       'submittedAt': row['submitted_at'],
       'submittedBy': row['submitted_by'],
@@ -61,8 +64,7 @@ Map<String, dynamic> pumpUploadRowToJson(Map<String, dynamic> row) => {
       'reviewNote': row['review_note'],
       'declineReason': row['decline_reason'],
       'approvedSaleId': row['approved_sale_id'],
-      'approvedStockDeductionApplied':
-          row['approved_stock_deduction_applied'],
+      'approvedStockDeductionApplied': row['approved_stock_deduction_applied'],
       'resubmittedFromUploadId': row['resubmitted_from_upload_id'],
       'workerId': row['worker_id'],
       'workerName': row['worker_name'],
@@ -84,7 +86,8 @@ Map<String, dynamic> pumpUploadRowToJson(Map<String, dynamic> row) => {
       'hasEdits': row['has_edits'] == true,
     };
 
-Map<String, dynamic> pumpUploadAdjustmentRowToJson(Map<String, dynamic> row) => {
+Map<String, dynamic> pumpUploadAdjustmentRowToJson(Map<String, dynamic> row) =>
+    {
       'id': row['id'],
       'uploadId': row['upload_id'],
       'pumpId': row['pump_id'],

@@ -7,13 +7,17 @@ const businessId = '11111111-1111-4111-8111-111111111111';
 const saleId = '22222222-2222-4222-8222-222222222222';
 const productId = '33333333-3333-4333-8333-333333333333';
 
-function createTestApp({ inventoryFound = true } = {}) {
+function createTestApp({
+  inventoryFound = true,
+  inventoryCategory = 'Fuel',
+  barInvoiceCollected = false,
+} = {}) {
   const state = { sale: null, items: [], stockUpdates: 0, commits: 0, rollbacks: 0 };
-  const sale = (id, createdAt) => ({
+  const sale = (id, createdAt, saleType) => ({
     id,
     business_id: businessId,
     final_amount: 1250,
-    sale_type: 'fuel',
+    sale_type: saleType,
     created_at: createdAt,
   });
 
@@ -30,6 +34,9 @@ function createTestApp({ inventoryFound = true } = {}) {
         state.items = [];
         return { rows: [] };
       }
+      if (sql.includes('AS full_name') && sql.includes('FROM workers w')) {
+        return { rows: [] };
+      }
       if (sql.includes('SELECT * FROM sales WHERE id = $1 AND business_id = $2 FOR UPDATE')) {
         return { rows: state.sale ? [state.sale] : [] };
       }
@@ -42,19 +49,29 @@ function createTestApp({ inventoryFound = true } = {}) {
       if (sql.includes('SELECT id, category, name, unit FROM inventory')) {
         return {
           rows: inventoryFound
-            ? [{ id: productId, category: 'Fuel', name: 'Petrol', unit: 'L' }]
+            ? [{
+                id: productId,
+                category: inventoryCategory,
+                name: inventoryCategory === 'Fuel' ? 'Petrol' : 'Bottle',
+                unit: inventoryCategory === 'Fuel' ? 'L' : 'bottle',
+              }]
             : [],
         };
       }
+      if (sql.includes('FROM bar_invoices')) {
+        return { rows: barInvoiceCollected ? [{ '?column?': 1 }] : [] };
+      }
       if (sql.includes('INSERT INTO sales')) {
-        state.sale = sale(params[0] || saleId, params[16]);
+        state.sale = sale(params[0] || saleId, params[16], params[15]);
         return { rows: [state.sale] };
       }
       if (sql.includes('SELECT * FROM sale_items')) {
         return { rows: state.items };
       }
       if (sql.includes('INSERT INTO sale_items')) {
-        state.stockUpdates += 1; // Simulates the installed PostgreSQL trigger.
+        if (inventoryCategory === 'Fuel') {
+          state.stockUpdates += 1; // Simulates the installed PostgreSQL trigger.
+        }
         state.items.push({ sale_id: saleId, product_id: params[1], quantity: params[3] });
         return { rows: [] };
       }
@@ -117,7 +134,7 @@ async function postSale(app, body = {
 test('fuel sale and stock deduction commit together; retry does not deduct twice', async () => {
   const { app, state } = createTestApp();
   const first = await postSale(app);
-  assert.equal(first.status, 201);
+  assert.equal(first.status, 201, await first.text());
   assert.equal(state.commits, 1);
   assert.equal(state.stockUpdates, 1);
 
@@ -181,6 +198,50 @@ test('petrol alias uses database stock deduction without a second route decremen
       total: 1250,
     }],
   });
+  assert.equal(response.status, 201);
+  assert.equal(state.stockUpdates, 1);
+});
+
+test('collected bar invoice does not deduct inventory a second time', async () => {
+  const { app, state } = createTestApp({
+    inventoryCategory: 'Beverage',
+    barInvoiceCollected: true,
+  });
+  const response = await postSale(app, {
+    id: saleId,
+    final_amount: 1250,
+    payment_method: 'mixed',
+    sale_type: 'bar',
+    items: [{
+      product_id: productId,
+      product_name: 'Bottle',
+      quantity: 2,
+      unit_price: 625,
+      total: 1250,
+    }],
+  });
+
+  assert.equal(response.status, 201);
+  assert.equal(state.stockUpdates, 0);
+  assert.equal(state.items.length, 1);
+});
+
+test('direct bar sale still deducts inventory', async () => {
+  const { app, state } = createTestApp({ inventoryCategory: 'Beverage' });
+  const response = await postSale(app, {
+    id: saleId,
+    final_amount: 1250,
+    payment_method: 'cash',
+    sale_type: 'bar',
+    items: [{
+      product_id: productId,
+      product_name: 'Bottle',
+      quantity: 2,
+      unit_price: 625,
+      total: 1250,
+    }],
+  });
+
   assert.equal(response.status, 201);
   assert.equal(state.stockUpdates, 1);
 });

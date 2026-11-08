@@ -65,6 +65,8 @@ class HotelRepositoryImpl implements HotelRepository {
         'totalPrice': row['total_price'],
         'specialRequests': row['special_requests'],
         'paymentStatus': row['payment_status'],
+        'amountPaid': row['amount_paid'],
+        'paymentBreakdown': row['payment_breakdown'],
         'cancelReason': row['cancel_reason'],
         'createdAt': row['created_at'],
       };
@@ -80,6 +82,23 @@ class HotelRepositoryImpl implements HotelRepository {
       // ignore: avoid_print
       print('Error fetching rooms: $e');
       return [];
+    }
+  }
+
+  @override
+  Future<void> updateRoomStatus(
+    String businessId,
+    String roomId,
+    String status,
+  ) async {
+    try {
+      await _api.put(
+        '/api/hotel/$businessId/rooms/$roomId',
+        body: {'status': status},
+      );
+    } catch (e) {
+      print('Error updating room status: $e');
+      rethrow;
     }
   }
 
@@ -185,6 +204,8 @@ class HotelRepositoryImpl implements HotelRepository {
         'total_price': booking['totalPrice'],
         'special_requests': booking['specialRequests'],
         'payment_status': booking['paymentStatus'],
+        'amount_paid': booking['amountPaid'],
+        'payment_breakdown': booking['paymentBreakdown'],
       });
       return _reservationRowToJson(Map<String, dynamic>.from(response as Map));
     } catch (e) {
@@ -220,6 +241,8 @@ class HotelRepositoryImpl implements HotelRepository {
       final payload = <String, dynamic>{};
       if (updates.containsKey('status')) payload['status'] = updates['status'];
       if (updates.containsKey('paymentStatus')) payload['payment_status'] = updates['paymentStatus'];
+      if (updates.containsKey('amountPaid')) payload['amount_paid'] = updates['amountPaid'];
+      if (updates.containsKey('paymentBreakdown')) payload['payment_breakdown'] = updates['paymentBreakdown'];
       if (updates.containsKey('paymentMethod')) payload['payment_method'] = updates['paymentMethod'];
       if (updates.containsKey('mixedPaymentNote')) payload['mixed_payment_note'] = updates['mixedPaymentNote'];
       if (updates.containsKey('stayDurationType')) payload['stay_duration_type'] = updates['stayDurationType'];

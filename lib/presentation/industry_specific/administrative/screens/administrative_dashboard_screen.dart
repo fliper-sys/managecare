@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/constants/routes.dart';
@@ -11,21 +12,45 @@ import '../../../../providers/notification_provider.dart';
 import '../../../../providers/theme_provider.dart';
 import '../providers/administrative_provider.dart';
 import 'administrative_flow_screens.dart';
+import 'administrative_business_theme.dart';
 
-class AdministrativeDashboardScreen extends StatefulWidget {
+class AdministrativeDashboardScreen extends StatelessWidget {
   const AdministrativeDashboardScreen({super.key});
 
   @override
-  State<AdministrativeDashboardScreen> createState() =>
+  Widget build(BuildContext context) => Theme(
+        data: administrativeBusinessTheme(Theme.of(context)),
+        child: const _AdministrativeDashboardContent(),
+      );
+}
+
+class _AdministrativeDashboardContent extends StatefulWidget {
+  const _AdministrativeDashboardContent();
+
+  @override
+  State<_AdministrativeDashboardContent> createState() =>
       _AdministrativeDashboardScreenState();
 }
 
 class _AdministrativeDashboardScreenState
-    extends State<AdministrativeDashboardScreen> {
+    extends State<_AdministrativeDashboardContent> {
   int _page = 0;
   String _query = '';
+  late final TextEditingController _searchController;
   String? _loadedBusinessId;
   bool _showArchivedClients = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -143,7 +168,7 @@ class _AdministrativeDashboardScreenState
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Home'),
           NavigationDestination(icon: Icon(Icons.task_alt_outlined), label: 'Tasks'),
-          NavigationDestination(icon: Icon(Icons.event_repeat_outlined), label: 'Obligations'),
+          NavigationDestination(icon: Icon(Icons.event_repeat_outlined), label: 'Due dates'),
           NavigationDestination(icon: Icon(Icons.people_outline), label: 'Clients'),
           NavigationDestination(icon: Icon(Icons.account_balance_wallet_outlined), label: 'Finance'),
           NavigationDestination(icon: Icon(Icons.more_horiz), label: 'More'),
@@ -168,11 +193,56 @@ class _AdministrativeDashboardScreenState
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [
-              _WelcomeBand(businessName: context
-                  .watch<BusinessProvider>()
-                  .currentBusiness
-                  ?.name,
+              _WelcomeBand(
+                businessName: context
+                    .watch<BusinessProvider>()
+                    .currentBusiness
+                    ?.name,
                 onRefresh: provider.refreshWorkspace,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _searchController,
+                textInputAction: TextInputAction.search,
+                onChanged: (value) => setState(() => _query = value.trim()),
+                onSubmitted: (value) {
+                  final query = value.trim().toLowerCase();
+                  final matchingTask = provider.tasks.any((task) =>
+                      '${task.title} ${task.clientName}'
+                          .toLowerCase()
+                          .contains(query));
+                  setState(() => _page = matchingTask ? 1 : 3);
+                },
+                decoration: InputDecoration(
+                  hintText: 'Search clients or tasks',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon: _query.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Clear search',
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _query = '');
+                          },
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                  filled: true,
+                  fillColor: theme.colorScheme.surface,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide.none,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide(
+                      color: theme.colorScheme.outline.withOpacity(.55),
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide(color: theme.colorScheme.primary),
+                  ),
+                ),
               ),
               const SizedBox(height: 16),
               if (provider.loadError != null)
@@ -312,6 +382,7 @@ class _AdministrativeDashboardScreenState
         ),
         const SizedBox(height: 12),
         TextField(
+          controller: _searchController,
           onChanged: (value) => setState(() => _query = value.trim()),
           decoration: InputDecoration(
             prefixIcon: const Icon(Icons.search),
@@ -364,7 +435,13 @@ class _AdministrativeDashboardScreenState
   }
 
   Widget _tasks() => Consumer<AdministrativeProvider>(
-        builder: (context, provider, _) => RefreshIndicator(
+        builder: (context, provider, _) {
+          final query = _query.toLowerCase();
+          final visibleTasks = provider.tasks.where((task) =>
+              '${task.title} ${task.clientName}'
+                  .toLowerCase()
+                  .contains(query));
+          return RefreshIndicator(
           onRefresh: provider.refreshWorkspace,
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
@@ -373,9 +450,14 @@ class _AdministrativeDashboardScreenState
             _Title('Tasks', trailing: 'Calendar', onTap: _calendar),
             const SizedBox(height: 12),
             if (provider.isLoading) const LinearProgressIndicator(),
-            if (provider.tasks.isEmpty && !provider.isLoading)
-              const _InlineEmpty(icon: Icons.task_alt_outlined, message: 'No tasks have been created yet.'),
-            ...provider.tasks.map((task) => Card(
+            if (visibleTasks.isEmpty && !provider.isLoading)
+              _InlineEmpty(
+                icon: Icons.task_alt_outlined,
+                message: query.isEmpty
+                    ? 'No tasks have been created yet.'
+                    : 'No tasks match this search.',
+              ),
+            ...visibleTasks.map((task) => Card(
                 margin: const EdgeInsets.only(bottom: 8),
                 color: Theme.of(context).cardColor,
                 child: ListTile(
@@ -412,7 +494,8 @@ class _AdministrativeDashboardScreenState
             ),
             ],
           ),
-        ),
+          );
+        },
       );
 
   Widget _obligationsTab() => Consumer<AdministrativeProvider>(
@@ -1010,40 +1093,101 @@ class _WelcomeBand extends StatelessWidget {
     final name = businessName?.trim();
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(18, 20, 14, 20),
+      clipBehavior: Clip.antiAlias,
+      padding: const EdgeInsets.fromLTRB(20, 20, 16, 20),
       decoration: BoxDecoration(
-        color: const Color(0xFF102747),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFF1D3A60)),
-      ),
-      child: Row(children: [
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('ADMINISTRATIVE WORKSPACE',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: Colors.white.withOpacity(.78),
-                    fontWeight: FontWeight.w700,
-                  )),
-          const SizedBox(height: 5),
-          Text(name?.isNotEmpty == true ? name! : 'Good to see you',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  )),
-          const SizedBox(height: 3),
-          Text('Insights and work that need your attention.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.white.withOpacity(.9),
-                  )),
-        ])),
-        const SizedBox(width: 12),
-        IconButton(
-          tooltip: 'Refresh workspace',
-          onPressed: onRefresh,
-          icon: const Icon(Icons.refresh, color: Colors.white),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF173D70), Color(0xFF102B51)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-      ]),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF173D70).withOpacity(.18),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            right: -26,
+            top: -46,
+            child: Container(
+              width: 148,
+              height: 148,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withOpacity(.045),
+              ),
+            ),
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'YOUR PRACTICE, IN VIEW',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: const Color(0xFFB9D6F4),
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.15,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      name?.isNotEmpty == true ? name! : 'Welcome back',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            height: 1.12,
+                          ),
+                    ),
+                    const SizedBox(height: 7),
+                    Text(
+                      'Clients, work and deadlines, all in one place.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.white.withOpacity(.82),
+                            height: 1.4,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 4),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Lottie.asset(
+                    'assets/lottie/singing-contract.json',
+                    width: 78,
+                    height: 70,
+                    fit: BoxFit.contain,
+                    repeat: true,
+                  ),
+                  Material(
+                    color: Colors.white.withOpacity(.12),
+                    borderRadius: BorderRadius.circular(14),
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      tooltip: 'Refresh workspace',
+                      onPressed: onRefresh,
+                      color: Colors.white,
+                      icon: const Icon(Icons.refresh_rounded),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
     ).animate().fadeIn(duration: 300.ms).slideY(begin: .06, end: 0);
   }
 }

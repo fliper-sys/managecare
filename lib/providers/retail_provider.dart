@@ -115,10 +115,11 @@ class Product {
               metadata['shelfLifeDays'] ??
               metadata['shelf_life_days'])
           ?.toInt(),
-      distributorDiscountPercent: _toDouble(data['distributorDiscountPercent'] ??
-              data['distributor_discount_percent'] ??
-              metadata['distributorDiscountPercent'] ??
-              metadata['distributor_discount_percent']) ??
+      distributorDiscountPercent: _toDouble(
+              data['distributorDiscountPercent'] ??
+                  data['distributor_discount_percent'] ??
+                  metadata['distributorDiscountPercent'] ??
+                  metadata['distributor_discount_percent']) ??
           0.0,
       distributorPrice: _toDouble(data['distributorPrice'] ??
           data['distributor_price'] ??
@@ -312,6 +313,35 @@ class RetailProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _errorMessage;
   String? _businessId;
+  List<Map<String, dynamic>> _petroleumBadges = [];
+  String? _selectedPetroleumBadgeId;
+  bool _loadingPetroleumBadges = false;
+
+  List<Map<String, dynamic>> get petroleumBadges =>
+      List.unmodifiable(_petroleumBadges);
+  String? get selectedPetroleumBadgeId => _selectedPetroleumBadgeId;
+  Map<String, dynamic>? get selectedPetroleumBadge {
+    for (final badge in _petroleumBadges) {
+      if (_badgeId(badge) == _selectedPetroleumBadgeId) return badge;
+    }
+    return null;
+  }
+
+  String? get selectedPetroleumBadgeNumber {
+    final badge = selectedPetroleumBadge;
+    final value = badge?['badge_number'] ??
+        badge?['badgeNumber'] ??
+        badge?['badge_code'] ??
+        badge?['badgeCode'] ??
+        badge?['number'] ??
+        badge?['name'];
+    return value?.toString();
+  }
+
+  bool get isLoadingPetroleumBadges => _loadingPetroleumBadges;
+
+  String _badgeId(Map<String, dynamic> badge) =>
+      (badge['id'] ?? badge['badge_id'] ?? badge['badgeId'] ?? '').toString();
 
   // Initialization tracking to prevent redundant loads
   bool _isInitialized = false;
@@ -636,7 +666,8 @@ class RetailProvider extends ChangeNotifier {
 
   double _readDouble(dynamic value) {
     if (value is num) return value.toDouble();
-    return double.tryParse(value?.toString().replaceAll(',', '').trim() ?? '') ??
+    return double.tryParse(
+            value?.toString().replaceAll(',', '').trim() ?? '') ??
         0.0;
   }
 
@@ -681,6 +712,136 @@ class RetailProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  String _petroleumBadgePreferenceKey(String businessId) =>
+      'petroleum_selected_badge_v1_${businessId.trim()}';
+
+  /// Loads available station badges and restores the view context for this business.
+  /// The selected badge is only a client-side filter/context, never an allocation instruction.
+  Future<void> loadPetroleumBadges({bool forceRefresh = false}) async {
+    final businessId = _businessId?.trim() ?? '';
+    if (businessId.isEmpty || (_loadingPetroleumBadges && !forceRefresh)) {
+      return;
+    }
+    _loadingPetroleumBadges = true;
+    notifyListeners();
+    try {
+      final response = await _api.get('/api/pumps/$businessId/badges');
+      final data = response is Map ? response['data'] : null;
+      _petroleumBadges = data is List
+          ? data
+              .whereType<Map>()
+              .map((row) => Map<String, dynamic>.from(row))
+              .toList()
+          : <Map<String, dynamic>>[];
+      final prefs = await SharedPreferences.getInstance();
+      final savedId = prefs.getString(_petroleumBadgePreferenceKey(businessId));
+      if (savedId != null &&
+          _petroleumBadges.any((badge) => _badgeId(badge) == savedId)) {
+        _selectedPetroleumBadgeId = savedId;
+      } else if (_selectedPetroleumBadgeId != null &&
+          !_petroleumBadges
+              .any((badge) => _badgeId(badge) == _selectedPetroleumBadgeId)) {
+        _selectedPetroleumBadgeId = null;
+      }
+      if ((savedId == null ||
+              !_petroleumBadges.any((badge) => _badgeId(badge) == savedId)) &&
+          _selectedPetroleumBadgeId == null) {
+        final active = _petroleumBadges.firstWhere(
+          (badge) =>
+              (double.tryParse(
+                    (badge['remaining_quantity'] ??
+                            badge['remainingQuantity'] ??
+                            '0')
+                        .toString(),
+                  ) ??
+                  0) >
+              0,
+          orElse: () => <String, dynamic>{},
+        );
+        if (active.isNotEmpty) {
+          _selectedPetroleumBadgeId = _badgeId(active);
+          await prefs.setString(
+            _petroleumBadgePreferenceKey(businessId),
+            _selectedPetroleumBadgeId!,
+          );
+        }
+      }
+    } catch (error) {
+      debugPrint('[RetailProvider] Loading petroleum badges failed: $error');
+    } finally {
+      _loadingPetroleumBadges = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> selectPetroleumBadge(String? badgeId) async {
+    final businessId = _businessId?.trim() ?? '';
+    if (badgeId != null &&
+        !_petroleumBadges.any((badge) => _badgeId(badge) == badgeId)) {
+      return;
+    }
+    _selectedPetroleumBadgeId = badgeId;
+    if (businessId.isNotEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      final key = _petroleumBadgePreferenceKey(businessId);
+      if (badgeId == null || badgeId.isEmpty) {
+        await prefs.remove(key);
+      } else {
+        await prefs.setString(key, badgeId);
+      }
+    }
+    notifyListeners();
+  }
+
+  Future<Map<String, dynamic>> loadPetroleumAccountability() async {
+    final businessId = _businessId?.trim() ?? '';
+    if (businessId.isEmpty) throw StateError('Business context is missing');
+    final badgeId = _selectedPetroleumBadgeId;
+    final response = await _api.get(
+      badgeId == null || badgeId.isEmpty
+          ? '/api/pumps/$businessId/accountability'
+          : '/api/pumps/$businessId/badges/$badgeId/accountability',
+      query: badgeId == null || badgeId.isEmpty ? null : {'badgeId': badgeId},
+    );
+    return response is Map<String, dynamic>
+        ? response
+        : response is Map
+            ? Map<String, dynamic>.from(response)
+            : <String, dynamic>{};
+  }
+
+  Future<void> allocatePetroleumDeposit({
+    required String depositId,
+    required double amount,
+  }) async {
+    final businessId = _businessId?.trim() ?? '';
+    final badgeId = _selectedPetroleumBadgeId;
+    if (businessId.isEmpty) throw StateError('Business context is missing');
+    if (badgeId == null || badgeId.isEmpty) {
+      throw StateError('Select a petroleum badge before allocating a deposit');
+    }
+    await _api.post(
+      '/api/pumps/$businessId/bank-deposits/$depositId/allocations',
+      body: {'badge_id': badgeId, 'amount': amount},
+    );
+  }
+
+  Future<void> submitPetroleumTankDip({
+    required String productId,
+    required double actualQuantity,
+    String? notes,
+  }) async {
+    final businessId = _businessId?.trim() ?? '';
+    if (businessId.isEmpty) throw StateError('Business context is missing');
+    await _api.post('/api/pumps/$businessId/tank-dips', body: {
+      'product_id': productId,
+      'actual_quantity': actualQuantity,
+      if (_selectedPetroleumBadgeId != null)
+        'badge_id': _selectedPetroleumBadgeId,
+      if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+    });
+  }
+
   // Initialize with business ID
   Future<void> initialize(String businessId) async {
     final isBusinessSwitch = _businessId != null && _businessId != businessId;
@@ -705,11 +866,14 @@ class RetailProvider extends ChangeNotifier {
       // ── Quota optimisation: invalidate product cache on business switch
       _lastProductFetch = null;
       _lastProductFetchStoreId = null;
+      _petroleumBadges = [];
+      _selectedPetroleumBadgeId = null;
       // ────────────────────────────────────────────────────────────────
     }
     _businessId = businessId;
     _ensureActiveCart();
     unawaited(syncPendingPumpSales());
+    unawaited(loadPetroleumBadges());
 
     // Check if we should skip initialization (already initialized recently).
     // Only honor this if the previous init actually produced products -
@@ -921,8 +1085,10 @@ class RetailProvider extends ChangeNotifier {
     final totalPaid = _readDouble(upload['total_paid'] ?? upload['totalPaid']);
     if (totalPaid > 0) return totalPaid;
 
-    final cash = _readDouble(upload['cash_amount'] ?? upload['cashAmount'] ??
-        upload['today_pump_cash'] ?? upload['todayPumpCash']);
+    final cash = _readDouble(upload['cash_amount'] ??
+        upload['cashAmount'] ??
+        upload['today_pump_cash'] ??
+        upload['todayPumpCash']);
     final pos = _readDouble(upload['pos_amount'] ?? upload['posAmount']);
     final recordedPayments = cash + pos;
     if (recordedPayments > 0) return recordedPayments;
@@ -961,6 +1127,8 @@ class RetailProvider extends ChangeNotifier {
         'totalAmount': amount,
         'fuelVolume': volume,
         'paymentMethod': 'pump_upload',
+        'badgeAllocations':
+            upload['badge_allocations'] ?? upload['badgeAllocations'] ?? [],
         'items': [
           {
             'product_name': productName,
@@ -999,12 +1167,22 @@ class RetailProvider extends ChangeNotifier {
     for (final data in sales) {
       final items = (data['items'] as List<dynamic>?) ?? [];
       double fuelVolume = 0.0;
+      final badgeAllocations = <Map<String, dynamic>>[];
       bool hasFuel = _isFuelText(data['category']?.toString() ?? '') ||
           _isFuelText(data['sale_type']?.toString() ?? '') ||
           _isFuelText(data['order_type']?.toString() ?? '') ||
           (data['pump_id']?.toString().isNotEmpty == true);
       for (final it in items) {
         if (it is! Map<String, dynamic>) continue;
+        final rawAllocations =
+            it['badge_allocations'] ?? it['badgeAllocations'];
+        if (rawAllocations is List) {
+          badgeAllocations.addAll(
+            rawAllocations
+                .whereType<Map>()
+                .map((allocation) => Map<String, dynamic>.from(allocation)),
+          );
+        }
         final pid = (it['product_id'] as String?) ?? '';
         final qtyNum = it['quantity'];
         double qty = 0.0;
@@ -1036,6 +1214,7 @@ class RetailProvider extends ChangeNotifier {
               0.0,
           'fuelVolume': fuelVolume,
           'paymentMethod': data['payment_method'] ?? 'Cash',
+          'badgeAllocations': badgeAllocations,
           'items': items,
         });
       }
@@ -1048,8 +1227,9 @@ class RetailProvider extends ChangeNotifier {
   /// If no range provided it uses today as default.
   Future<Map<String, dynamic>> getFuelMetrics(
       {DateTime? start, DateTime? end}) async {
-    if (_businessId == null)
+    if (_businessId == null) {
       return {'totalAmount': 0.0, 'totalVolume': 0.0, 'transactions': 0};
+    }
 
     final now = DateTime.now();
     final s = start ?? DateTime(now.year, now.month, now.day);
@@ -1059,9 +1239,8 @@ class RetailProvider extends ChangeNotifier {
       final uploads = await _fetchPumpUploads(start: s, end: e);
       final uploadMetrics = _calculatePumpUploadMetrics(uploads);
       final uploadSaleIds = uploads
-          .map((upload) => (upload['sale_id'] ?? upload['saleId'] ?? '')
-              .toString()
-              .trim())
+          .map((upload) =>
+              (upload['sale_id'] ?? upload['saleId'] ?? '').toString().trim())
           .where((id) => id.isNotEmpty)
           .toSet();
       final sales = await _salesRepo.fetchSales(
@@ -1076,16 +1255,15 @@ class RetailProvider extends ChangeNotifier {
                     .trim(),
               ))
           .toList();
-      final salesMetrics =
-          await _calculateFuelMetricsSnapshot(standaloneSales);
+      final salesMetrics = await _calculateFuelMetricsSnapshot(standaloneSales);
       return {
         'totalAmount': _readDouble(uploadMetrics['totalAmount']) +
             _readDouble(salesMetrics['totalAmount']),
         'totalVolume': _readDouble(uploadMetrics['totalVolume']) +
             _readDouble(salesMetrics['totalVolume']),
-        'transactions': ((uploadMetrics['transactions'] as num?)?.toInt() ??
-                0) +
-            ((salesMetrics['transactions'] as num?)?.toInt() ?? 0),
+        'transactions':
+            ((uploadMetrics['transactions'] as num?)?.toInt() ?? 0) +
+                ((salesMetrics['transactions'] as num?)?.toInt() ?? 0),
       };
     } catch (e) {
       debugPrint('Error computing fuel metrics: $e');
@@ -1121,9 +1299,8 @@ class RetailProvider extends ChangeNotifier {
     try {
       final uploads = await _fetchPumpUploads(start: start, end: end);
       final uploadSaleIds = uploads
-          .map((upload) => (upload['sale_id'] ?? upload['saleId'] ?? '')
-              .toString()
-              .trim())
+          .map((upload) =>
+              (upload['sale_id'] ?? upload['saleId'] ?? '').toString().trim())
           .where((id) => id.isNotEmpty)
           .toSet();
       final sales = await _salesRepo.fetchSales(
@@ -1309,7 +1486,9 @@ class RetailProvider extends ChangeNotifier {
 
       final created = await _inventoryRepo.addInventory(data);
       final newId = (created is Map ? created['id'] : null)?.toString() ?? '';
-      if (newId.isEmpty) throw StateError('Inventory API returned no product ID');
+      if (newId.isEmpty) {
+        throw StateError('Inventory API returned no product ID');
+      }
 
       await _logProductActivity(
         productId: newId,
@@ -2267,6 +2446,8 @@ class RetailProvider extends ChangeNotifier {
     String? pumpNumber,
     String? pumpName,
     String? idempotencyKey,
+    String? badgeId,
+    String? badgeNumber,
   }) async {
     if (_businessId == null) throw Exception('No business selected');
 
@@ -2351,6 +2532,9 @@ class RetailProvider extends ChangeNotifier {
       if (pumpId != null && pumpId.isNotEmpty) 'pumpId': pumpId,
       if (pumpNumber != null && pumpNumber.isNotEmpty) 'pumpNumber': pumpNumber,
       if (pumpName != null && pumpName.isNotEmpty) 'pumpName': pumpName,
+      if (badgeId != null && badgeId.isNotEmpty) 'badge_id': badgeId,
+      if (badgeNumber != null && badgeNumber.isNotEmpty)
+        'badge_number': badgeNumber,
       'category': 'Fuel',
     };
 
@@ -2365,8 +2549,7 @@ class RetailProvider extends ChangeNotifier {
         ? DateTime.now().microsecondsSinceEpoch.toString()
         : cleanIdempotencyKey;
     // Persist a server-compatible id so offline retries remain idempotent.
-    final orderId =
-        _stableUuidFromKey('fuel-sale:$_businessId:$localSaleKey');
+    final orderId = _stableUuidFromKey('fuel-sale:$_businessId:$localSaleKey');
     saleData['id'] = orderId;
     saleData['orderId'] = orderId;
     saleData['status'] = 'completed';
@@ -2447,6 +2630,9 @@ class RetailProvider extends ChangeNotifier {
         'status': 'completed',
         'created_by': createdBy,
         'sale_type': 'fuel',
+        if (badgeId != null && badgeId.isNotEmpty) 'badge_id': badgeId,
+        if (badgeNumber != null && badgeNumber.isNotEmpty)
+          'badge_number': badgeNumber,
         'items': [
           {
             'product_id': product.id,
@@ -2465,7 +2651,8 @@ class RetailProvider extends ChangeNotifier {
       // assigns its own, returned here. Callers (e.g. the pump upload
       // screen, which posts this as a uuid `sale_id` column) need the real
       // one, not the placeholder still sitting in saleData.
-      final realSaleId = (createdSale is Map ? createdSale['id'] : null)?.toString();
+      final realSaleId =
+          (createdSale is Map ? createdSale['id'] : null)?.toString();
       if (realSaleId != null && realSaleId.isNotEmpty) {
         saleData['id'] = realSaleId;
         saleData['orderId'] = realSaleId;
@@ -2604,8 +2791,7 @@ class RetailProvider extends ChangeNotifier {
         totalSales += amount;
       }
 
-      debugPrint(
-          '[RetailProvider] Worker $workerId total sales: $totalSales');
+      debugPrint('[RetailProvider] Worker $workerId total sales: $totalSales');
       return totalSales;
     } catch (e) {
       debugPrint('[RetailProvider] Error fetching worker sales: $e');
@@ -2699,9 +2885,8 @@ class RetailProvider extends ChangeNotifier {
   }
 
   bool _isFuelOrPumpLinkedSale(Map<String, dynamic> sale) {
-    final saleType = (sale['saleType'] ?? sale['sale_type'] ?? '')
-        .toString()
-        .toLowerCase();
+    final saleType =
+        (sale['saleType'] ?? sale['sale_type'] ?? '').toString().toLowerCase();
     final category =
         (sale['category'] ?? sale['order_type'] ?? '').toString().toLowerCase();
     final pumpId = (sale['pumpId'] ?? sale['pump_id'] ?? '').toString().trim();
@@ -2866,8 +3051,8 @@ class RetailProvider extends ChangeNotifier {
         final response = await fetchPage(
           statusValues.isEmpty ? null : statusValues.first,
         );
-        sales = ((response['data'] as List?) ?? [])
-            .cast<Map<String, dynamic>>();
+        sales =
+            ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
         final pagination = response['pagination'] as Map<String, dynamic>?;
         final totalPages =
             (pagination?['totalPages'] as num?)?.toInt() ?? currentPage;
@@ -2876,8 +3061,8 @@ class RetailProvider extends ChangeNotifier {
         final combined = <String, Map<String, dynamic>>{};
         for (final statusValue in statusValues) {
           final response = await fetchPage(statusValue);
-          final data = ((response['data'] as List?) ?? [])
-              .cast<Map<String, dynamic>>();
+          final data =
+              ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
           for (final sale in data) {
             combined[sale['id'].toString()] = sale;
           }
@@ -3019,7 +3204,8 @@ class RetailProvider extends ChangeNotifier {
     try {
       if (_businessId == null) return;
 
-      await _api.patch('/api/inventory/$_businessId/$productId/quantity', body: {
+      await _api
+          .patch('/api/inventory/$_businessId/$productId/quantity', body: {
         'quantity': quantity,
         'operation': 'increment',
       });
@@ -3074,7 +3260,8 @@ class RetailProvider extends ChangeNotifier {
         'customer_id': customerId,
       });
 
-      debugPrint('[RetailProvider] Customer $customerId linked to sale $saleId');
+      debugPrint(
+          '[RetailProvider] Customer $customerId linked to sale $saleId');
     } catch (e) {
       debugPrint('[RetailProvider] Error linking customer to sale: $e');
       rethrow;

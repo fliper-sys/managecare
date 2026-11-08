@@ -7,6 +7,7 @@ import '../../../../core/theme/colors.dart';
 import '../../../../core/utils/worker_permissions.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/hotel_provider.dart';
+import '../../../shared/payment_breakdown_dialog.dart';
 
 class FrontDeskScreen extends StatelessWidget {
   const FrontDeskScreen({super.key});
@@ -177,14 +178,22 @@ class FrontDeskScreen extends StatelessWidget {
                         onPressed: !canManageBookings
                             ? null
                             : () async {
-                          await provider.updateReservationStatus(
-                            reservation.id,
-                            'checked-out',
+                          final balance =
+                              provider.getReservationBalance(reservation);
+                          final payment = await showPaymentBreakdownDialog(
+                            context,
+                            title: 'Confirm payment and check-out',
+                            amountDue: balance,
                           );
-                          await provider.updatePaymentStatus(
-                            reservation.id,
-                            'paid',
-                          );
+                          if (payment == null || !context.mounted) return;
+                          try {
+                            if (payment.total > 0) {
+                              await provider.recordReservationPayment(
+                                reservation.id,
+                                payment,
+                              );
+                            }
+                            await provider.checkOutReservation(reservation.id);
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
@@ -193,6 +202,16 @@ class FrontDeskScreen extends StatelessWidget {
                                 ),
                               ),
                             );
+                          }
+                          } catch (error) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content:
+                                      Text('Could not check out guest: $error'),
+                                ),
+                              );
+                            }
                           }
                         },
                         child: const Text('Check Out'),

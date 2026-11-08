@@ -13,6 +13,7 @@ import '../../../../providers/business_provider.dart';
 import '../../../../providers/retail_provider.dart';
 import '../../../../services/managecare_api_client.dart';
 import '../utils/fuel_station_scope.dart';
+import 'petroleum_badge_context.dart';
 
 class GasDashboardScreen extends StatefulWidget {
   const GasDashboardScreen({
@@ -116,10 +117,10 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
       retail.getFuelSalesHistory(start: start, end: end, limit: 5),
       _loadUploadCounts(
         businessId: business?.id,
-        workerId: WorkerPermissions.normalizeRole(user?.role ?? '') ==
-            'pump_operator'
-            ? user?.id
-            : null,
+        workerId:
+            WorkerPermissions.normalizeRole(user?.role ?? '') == 'pump_operator'
+                ? user?.id
+                : null,
       ),
     ]);
     final metrics = results[0] as Map<String, dynamic>;
@@ -198,8 +199,12 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final businessType =
-        context.watch<BusinessProvider>().currentBusiness?.businessType.toLowerCase() ?? 'gas';
+    final businessType = context
+            .watch<BusinessProvider>()
+            .currentBusiness
+            ?.businessType
+            .toLowerCase() ??
+        'gas';
     if (!FuelStationScope.matches(widget.mode, businessType)) {
       return FuelStationScope.mismatchScaffold(
         mode: widget.mode,
@@ -208,10 +213,13 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
     }
     final isPetroleumStation = widget.mode == FuelStationMode.petroleum;
     final dashboardLabel = widget.mode.label;
-    final pumpRoute = isPetroleumStation ? Routes.petroleumPump : Routes.gasPump;
-    final stockRoute = isPetroleumStation ? Routes.petroleumStock : Routes.gasStock;
-    final historyRoute =
-        isPetroleumStation ? Routes.petroleumSalesHistory : Routes.gasSalesHistory;
+    final pumpRoute =
+        isPetroleumStation ? Routes.petroleumPump : Routes.gasPump;
+    final stockRoute =
+        isPetroleumStation ? Routes.petroleumStock : Routes.gasStock;
+    final historyRoute = isPetroleumStation
+        ? Routes.petroleumSalesHistory
+        : Routes.gasSalesHistory;
     final pumpUploadRoute =
         isPetroleumStation ? Routes.petroleumPumpUpload : Routes.gasPumpUpload;
     final pumpUploadHistoryRoute = isPetroleumStation
@@ -224,8 +232,7 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
     final role = auth.currentUser?.role ?? '';
     final permissions = auth.currentUser?.permissions ?? [];
     final stationRole = WorkerPermissions.normalizeRole(role);
-    final isPumpOperator =
-        isPetroleumStation && stationRole == 'pump_operator';
+    final isPumpOperator = isPetroleumStation && stationRole == 'pump_operator';
     final isMiniMartSeller = isPetroleumStation &&
         (stationRole == 'sales_rep' || stationRole == 'cashier');
     final isStationStaff = isPetroleumStation && stationRole == 'staff';
@@ -386,6 +393,7 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const SizedBox(height: 20),
+                      if (isPetroleumStation) const PetroleumBadgeContextBar(),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -555,17 +563,20 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                                       margin: const EdgeInsets.only(bottom: 12),
                                       padding: const EdgeInsets.all(12),
                                       decoration: BoxDecoration(
-                                          color: colorScheme.surfaceContainerHighest,
+                                          color: colorScheme
+                                              .surfaceContainerHighest,
                                           borderRadius:
                                               BorderRadius.circular(12),
                                           border: Border.all(
-                                              color: colorScheme.outlineVariant)),
+                                              color:
+                                                  colorScheme.outlineVariant)),
                                       child: Row(
                                         children: [
                                           Container(
                                               padding: const EdgeInsets.all(10),
                                               decoration: BoxDecoration(
-                                                  color: colorScheme.surfaceContainer,
+                                                  color: colorScheme
+                                                      .surfaceContainer,
                                                   borderRadius:
                                                       BorderRadius.circular(
                                                           12)),
@@ -579,19 +590,18 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                                                 crossAxisAlignment:
                                                     CrossAxisAlignment.start,
                                                 children: [
-                                                  Text(
-                                                      'Sale #$saleId...',
+                                                  Text('Sale #$saleId...',
                                                       style: const TextStyle(
                                                           fontWeight:
                                                               FontWeight.bold)),
                                                   Text(
                                                     dateStr,
-                                                    style: theme.textTheme
-                                                        .bodySmall
+                                                    style: theme
+                                                        .textTheme.bodySmall
                                                         ?.copyWith(
-                                                          color: colorScheme
-                                                              .onSurfaceVariant,
-                                                        ),
+                                                      color: colorScheme
+                                                          .onSurfaceVariant,
+                                                    ),
                                                   ),
                                                 ]),
                                           ),
@@ -607,12 +617,12 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                                                 const SizedBox(height: 4),
                                                 Text(
                                                   '${fuelVolume.toStringAsFixed(2)} L',
-                                                  style: theme.textTheme
-                                                      .bodySmall
+                                                  style: theme
+                                                      .textTheme.bodySmall
                                                       ?.copyWith(
-                                                        color: colorScheme
-                                                            .onSurfaceVariant,
-                                                      ),
+                                                    color: colorScheme
+                                                        .onSurfaceVariant,
+                                                  ),
                                                 ),
                                               ])
                                         ],

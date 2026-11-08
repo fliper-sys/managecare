@@ -30,7 +30,9 @@ import 'package:intl/intl.dart';
 
 import '../../../../core/theme/colors.dart';
 import '../../../../core/utils/currency.dart';
+import '../../../../data/models/payment_breakdown.dart';
 import '../../../../providers/hotel_provider.dart';
+import '../../../shared/payment_breakdown_fields.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 1) NEW BOOKING / RESERVE ROOM DIALOG
@@ -93,7 +95,10 @@ class _BookingDialogState extends State<_BookingDialog> {
 
   // Payment
   String _paymentMethod = 'cash'; // 'cash' | 'card' | 'transfer' | 'mixed'
-  final TextEditingController _mixedNoteCtrl = TextEditingController();
+  final TextEditingController _singlePaymentCtrl = TextEditingController();
+  final TextEditingController _cashPaymentCtrl = TextEditingController();
+  final TextEditingController _cardPaymentCtrl = TextEditingController();
+  final TextEditingController _transferPaymentCtrl = TextEditingController();
 
   // Vehicle
   bool _hasVehicle = false;
@@ -130,7 +135,10 @@ class _BookingDialogState extends State<_BookingDialog> {
     _nameCtrl.dispose();
     _phoneCtrl.dispose();
     _emailCtrl.dispose();
-    _mixedNoteCtrl.dispose();
+    _singlePaymentCtrl.dispose();
+    _cashPaymentCtrl.dispose();
+    _cardPaymentCtrl.dispose();
+    _transferPaymentCtrl.dispose();
     _vehicleMakeCtrl.dispose();
     _vehicleModelCtrl.dispose();
     _vehicleYearCtrl.dispose();
@@ -147,6 +155,26 @@ class _BookingDialogState extends State<_BookingDialog> {
       );
       return;
     }
+    final payment = widget.reservationOnly
+        ? const PaymentBreakdown()
+        : _paymentMethod == 'mixed'
+            ? PaymentBreakdown(
+                cash: double.tryParse(_cashPaymentCtrl.text.trim()) ?? 0,
+                card: double.tryParse(_cardPaymentCtrl.text.trim()) ?? 0,
+                transfer:
+                    double.tryParse(_transferPaymentCtrl.text.trim()) ?? 0,
+              )
+            : PaymentBreakdown(
+                cash: _paymentMethod == 'cash'
+                    ? double.tryParse(_singlePaymentCtrl.text.trim()) ?? 0
+                    : 0,
+                card: _paymentMethod == 'card'
+                    ? double.tryParse(_singlePaymentCtrl.text.trim()) ?? 0
+                    : 0,
+                transfer: _paymentMethod == 'transfer'
+                    ? double.tryParse(_singlePaymentCtrl.text.trim()) ?? 0
+                    : 0,
+              );
     setState(() => _saving = true);
     try {
       final checkIn = widget.reservationOnly
@@ -163,9 +191,9 @@ class _BookingDialogState extends State<_BookingDialog> {
         guestPhone: _phoneCtrl.text.trim(),
         guestSex: _sex,
         occupantCount: _occupants,
-        paymentMethod: widget.reservationOnly ? 'cash' : _paymentMethod,
-        mixedPaymentNote:
-            widget.reservationOnly ? '' : _mixedNoteCtrl.text.trim(),
+        paymentMethod: payment.total > 0 ? payment.method : _paymentMethod,
+        amountPaid: payment.total,
+        paymentBreakdown: payment,
         stayDurationType: widget.reservationOnly ? 'full_day' : _stayDuration,
         estimatedArrivalAt: widget.reservationOnly ? _estimatedArrival : null,
         checkIn: checkIn,
@@ -455,15 +483,29 @@ class _BookingDialogState extends State<_BookingDialog> {
                     ),
                     if (_paymentMethod == 'mixed') ...[
                       const SizedBox(height: 8),
+                      PaymentBreakdownFields(
+                        cashController: _cashPaymentCtrl,
+                        cardController: _cardPaymentCtrl,
+                        transferController: _transferPaymentCtrl,
+                        onChanged: (_) => setState(() {}),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text('Optional payment collected at booking.'),
+                    ] else ...[
+                      const SizedBox(height: 8),
                       TextFormField(
-                        controller: _mixedNoteCtrl,
-                        maxLines: 2,
+                        controller: _singlePaymentCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         decoration: const InputDecoration(
-                          labelText: 'Mixed payment breakdown',
-                          hintText: 'e.g. ₦20,000 cash + ₦30,000 transfer',
+                          labelText: 'Amount paid now (optional)',
+                          prefixText: '₦ ',
                           border: OutlineInputBorder(),
                         ),
                       ),
+                      const SizedBox(height: 6),
+                      const Text('Leave blank to pay at check-out.'),
                     ],
                     const SizedBox(height: 12),
 
@@ -656,7 +698,6 @@ class _ExtendStayDialog extends StatefulWidget {
 class _ExtendStayDialogState extends State<_ExtendStayDialog> {
   String _extensionType = 'full_day'; // 'half_day' | 'full_day'
   int _days = 1;
-  String _paymentMethod = 'cash';
   bool _saving = false;
 
   Future<void> _save() async {
@@ -672,8 +713,7 @@ class _ExtendStayDialogState extends State<_ExtendStayDialog> {
       await widget.provider.extendReservationStay(
         reservationId: widget.reservation.id,
         newCheckOut: newCheckOut,
-        extensionReason:
-            'Extended by receptionist (${_extensionType.replaceAll('_', ' ')}, paid via $_paymentMethod)',
+        extensionReason: 'Extended by receptionist',
       );
 
       // Record the extension payment as a charge on the reservation folio
@@ -689,18 +729,19 @@ class _ExtendStayDialogState extends State<_ExtendStayDialog> {
           await widget.provider.addReservationCharge(
             reservationId: widget.reservation.id,
             description:
-                'Stay extension (${_extensionType.replaceAll('_', ' ')}) — paid via $_paymentMethod',
+                  'Stay extension (${_extensionType.replaceAll('_', ' ')})',
             amount: extraCharge,
             category: 'extension',
             metadata: {
-              'paymentMethod': _paymentMethod,
-              'extensionType': _extensionType,
-              'additionalDays': _extensionType == 'full_day' ? _days : 0,
+                'extensionType': _extensionType,
+                'additionalDays': _extensionType == 'full_day' ? _days : 0,
+                'dueAtCheckout': true,
             },
           );
-        } catch (_) {
-          // Non-fatal — extension itself succeeded even if the charge log
-          // couldn't be written (e.g. offline).
+        } catch (error) {
+            throw StateError(
+              'Stay extended, but the folio charge could not be saved: $error',
+            );
         }
       }
 
@@ -780,20 +821,8 @@ class _ExtendStayDialogState extends State<_ExtendStayDialog> {
               ),
             ],
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _paymentMethod,
-              decoration: const InputDecoration(
-                labelText: 'Payment method',
-                border: OutlineInputBorder(),
-              ),
-              items: const [
-                DropdownMenuItem(value: 'cash', child: Text('Cash')),
-                DropdownMenuItem(value: 'card', child: Text('Card')),
-                DropdownMenuItem(
-                    value: 'transfer', child: Text('Bank Transfer')),
-                DropdownMenuItem(value: 'mixed', child: Text('Mixed / Split')),
-              ],
-              onChanged: (v) => setState(() => _paymentMethod = v ?? 'cash'),
+            const Text(
+              'The extension charge will be added to the guest folio and paid at check-out.',
             ),
           ],
         ),

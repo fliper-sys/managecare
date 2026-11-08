@@ -8,6 +8,110 @@ const router = express.Router();
 const { requireFields, asyncHandler } = require('../middleware/validation');
 const { requireBusinessReadAccess, requireBusinessOwner } = require('../middleware/auth');
 
+async function sendBadgeAccountability(pool, req, res, businessId, badgeId) {
+  const badgeResult = await pool.query(
+    `SELECT COALESCE(SUM(remaining_quantity), 0)::numeric AS badge_expected_balance,
+            COUNT(*)::integer AS badge_count
+     FROM petroleum_badge_batches
+     WHERE business_id = $1 AND ($2::text IS NULL OR id::text = $2)`,
+    [businessId, badgeId]
+  );
+  if (badgeId && badgeResult.rows[0].badge_count === 0) {
+    return res.status(404).json({ error: 'Petroleum badge not found' });
+  }
+
+  const productsResult = await pool.query(
+    `SELECT i.id AS product_id, i.name AS product_name, i.unit,
+       COALESCE(SUM(b.remaining_quantity), 0)::numeric AS expected_quantity,
+       d.actual_quantity, d.measured_at AS last_measured_at,
+       d.recorded_by, d.recorded_by_name, d.note,
+       CASE WHEN d.actual_quantity IS NULL THEN NULL
+            ELSE d.actual_quantity - COALESCE(SUM(b.remaining_quantity), 0) END AS variance
+     FROM inventory i
+     LEFT JOIN petroleum_badge_batches b
+       ON b.business_id = i.business_id AND b.product_id = i.id
+     LEFT JOIN LATERAL (
+       SELECT * FROM petroleum_tank_dips x
+       WHERE x.business_id = i.business_id AND x.product_id = i.id
+       ORDER BY x.measured_at DESC LIMIT 1
+     ) d ON true
+     WHERE i.business_id = $1
+       AND LOWER(CONCAT_WS(' ', i.category, i.name, i.unit))
+           ~ '(fuel|petrol|diesel|kerosene|petroleum|pms|ago|dpk|gas)'
+     GROUP BY i.id, i.name, i.unit, d.actual_quantity, d.measured_at,
+              d.recorded_by, d.recorded_by_name, d.note
+     ORDER BY i.name`,
+    [businessId]
+  );
+
+  const paymentResult = await pool.query(
+    `WITH allocated_items AS (
+       SELECT s.id AS sale_id, si.id AS sale_item_id, s.final_amount,
+              s.payment_method, s.payment_breakdown, si.total AS item_total,
+              a.badge_id, a.quantity, a.allocated_quantity
+       FROM sales s
+       JOIN sale_items si ON si.sale_id = s.id
+       LEFT JOIN LATERAL (
+         SELECT item->>'badge_id' AS badge_id,
+                NULLIF(item->>'quantity', '')::numeric AS quantity,
+                SUM(NULLIF(item->>'quantity', '')::numeric) OVER () AS allocated_quantity
+         FROM jsonb_array_elements(
+           CASE WHEN jsonb_typeof(si.badge_allocations) = 'array'
+                THEN si.badge_allocations ELSE '[]'::jsonb END
+         ) item
+       ) a ON true
+       WHERE s.business_id = $1 AND s.status = 'completed'
+         AND LOWER(COALESCE(s.sale_type, '')) ~ '(fuel|petrol|pump|gas)'
+     ), payment_rows AS (
+       SELECT ai.*,
+              COALESCE(NULLIF(component->>'method', ''), ai.payment_method, 'unknown') AS method,
+              COALESCE(NULLIF(component->>'amount', '')::numeric, 0) AS component_amount
+       FROM allocated_items ai
+       CROSS JOIN LATERAL jsonb_array_elements(
+         CASE WHEN jsonb_typeof(ai.payment_breakdown) = 'array'
+                    AND jsonb_array_length(ai.payment_breakdown) > 0
+              THEN ai.payment_breakdown
+              ELSE jsonb_build_array(jsonb_build_object(
+                'method', COALESCE(ai.payment_method, 'unknown'),
+                'amount', COALESCE(ai.final_amount, 0)
+              )) END
+       ) component
+       WHERE $2::text IS NULL OR ai.badge_id = $2
+     )
+     SELECT method,
+       COALESCE(SUM(component_amount
+         * COALESCE(item_total / NULLIF(final_amount, 0), 1)
+         * COALESCE(quantity / NULLIF(allocated_quantity, 0), 1)), 0)::numeric AS amount
+     FROM payment_rows GROUP BY method ORDER BY method`,
+    [businessId, badgeId]
+  );
+
+  const depositResult = await pool.query(
+    `SELECT d.id, d.depositor_name, d.deposit_date, d.deposit_time,
+            d.bank_name, d.account_number, d.amount,
+            CASE WHEN $2::text IS NULL THEN d.amount
+                 ELSE COALESCE(SUM(a.amount), 0) END AS allocated_amount
+     FROM petroleum_bank_deposits d
+     LEFT JOIN petroleum_deposit_allocations a
+       ON a.deposit_id = d.id
+       AND ($2::text IS NULL OR a.badge_batch_id::text = $2)
+     WHERE d.business_id = $1
+     GROUP BY d.id
+     ORDER BY d.deposit_date DESC, d.deposit_time DESC, d.created_at DESC`,
+    [businessId, badgeId]
+  );
+
+  res.json({
+    data: {
+      badge_id: badgeId,
+      badge_expected_balance: badgeResult.rows[0].badge_expected_balance,
+      products: productsResult.rows,
+      payment_methods: paymentResult.rows,
+      bank_deposits: depositResult.rows,
+    },
+  });
+}
+
 module.exports = function(pool) {
   router.use('/:businessId', requireBusinessReadAccess(pool));
 
@@ -203,6 +307,20 @@ module.exports = function(pool) {
       return res.status(404).json({ error: 'Active pump or linked fuel product not found in this business' });
     }
     const configuredPump = pumpResult.rows[0];
+    let selectedBadgeId = null;
+    let selectedBadgeCode = null;
+    if (asUuidOrNull(b.badge_id)) {
+      const selectedBadgeResult = await pool.query(
+        `SELECT id, badge_code FROM petroleum_badge_batches
+         WHERE id = $1 AND business_id = $2 AND product_id = $3`,
+        [asUuidOrNull(b.badge_id), businessId, configuredPump.product_id]
+      );
+      if (!selectedBadgeResult.rows.length) {
+        return res.status(400).json({ error: 'Selected badge does not belong to this fuel product' });
+      }
+      selectedBadgeId = selectedBadgeResult.rows[0].id;
+      selectedBadgeCode = selectedBadgeResult.rows[0].badge_code;
+    }
 
     const closingVolume = parseFloat(b.closing_volume) || 0;
     const openingVolume = parseFloat(b.opening_volume) || 0;
@@ -250,7 +368,8 @@ module.exports = function(pool) {
            cash_breakdown, discrepancy_notes, discrepancy_summary,
            shift_opening_cash_photo_url, shift_close_cash_photo_url, opening_photo_url, closing_photo_url,
            uploaded_at,
-           status, submitted_at, submitted_by, submitted_by_name, resubmitted_from_upload_id
+           status, submitted_at, submitted_by, submitted_by_name, resubmitted_from_upload_id,
+           selected_badge_id, selected_badge_code
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7,
            $8, $9, $10, $11,
@@ -261,7 +380,7 @@ module.exports = function(pool) {
            COALESCE($31::jsonb, '[]'::jsonb), COALESCE($32::jsonb, '[]'::jsonb), $33,
            $34, $35, $36, $37,
            COALESCE($38::timestamptz, NOW()),
-           COALESCE($39, 'pending_review'), COALESCE($38::timestamptz, NOW()), $40, $41, $42
+           COALESCE($39, 'pending_review'), COALESCE($38::timestamptz, NOW()), $40, $41, $42, $43, $44
          )
          RETURNING *`,
         [
@@ -275,7 +394,7 @@ module.exports = function(pool) {
           b.cash_breakdown ? JSON.stringify(b.cash_breakdown) : null, b.discrepancy_notes ? JSON.stringify(b.discrepancy_notes) : null, b.discrepancy_summary || null,
           b.shift_opening_cash_photo_url || null, b.shift_close_cash_photo_url || null, b.opening_photo_url || null, b.closing_photo_url || null,
           b.submitted_at || null, b.status || 'pending_review', asUuidOrNull(b.submitted_by || b.worker_id), b.submitted_by_name || b.worker_name || null,
-          asUuidOrNull(b.resubmitted_from_upload_id),
+          asUuidOrNull(b.resubmitted_from_upload_id), selectedBadgeId, selectedBadgeCode,
         ]
       );
       if (asUuidOrNull(b.resubmitted_from_upload_id)) {
@@ -397,19 +516,22 @@ module.exports = function(pool) {
         ]
       );
 
-      // The sale_items insert above invokes the stock deduction trigger,
-      // which also protects legacy direct REST inserts and prevents replay
-      // from applying the same sale item twice.
+      // The sale_items insert invokes the stock deduction trigger and stores FIFO badge attribution.
+      const allocationResult = await client.query(
+        `SELECT badge_allocations FROM sale_items WHERE sale_id=$1 ORDER BY id DESC LIMIT 1`, [sale.id]
+      );
+      const badgeAllocations = allocationResult.rows[0]?.badge_allocations || [];
+      await client.query('UPDATE petroleum_badge_allocations SET upload_id=$1 WHERE sale_id=$2', [id, sale.id]);
 
       await client.query(
         `INSERT INTO petroleum_cash_entries (
            business_id, source_type, upload_id, sale_id, worker_id, worker_name, pump_id, pump_number,
            product_name, cash_amount, pos_amount, total_amount, cash_breakdown, entry_date, entry_time,
-           note, created_by, created_by_name
+           note, created_by, created_by_name, badge_allocations
          ) VALUES (
            $1, 'pump_upload', $2, $3, $4, $5, $6, $7,
            $8, $9, $10, $11, COALESCE($12::jsonb, '[]'::jsonb), CURRENT_DATE, CURRENT_TIME,
-           $13, $14, $15
+           $13, $14, $15, $16::jsonb
          )`,
         [
           businessId,
@@ -427,6 +549,7 @@ module.exports = function(pool) {
           note || null,
           asUuidOrNull(reviewed_by),
           reviewed_by_name || null,
+          JSON.stringify(badgeAllocations),
         ]
       );
 
@@ -473,6 +596,9 @@ module.exports = function(pool) {
         ]
       );
 
+      await client.query('UPDATE pump_daily_uploads SET badge_allocations=$1::jsonb WHERE id=$2 AND business_id=$3',
+        [JSON.stringify(badgeAllocations), id, businessId]);
+
       await client.query(
         `INSERT INTO pump_upload_adjustments (business_id, upload_id, pump_id, pump_number, product_name, uploaded_at, action, changes, note, adjusted_by, adjusted_by_name)
          VALUES ($1, $2, $3, $4, $5, $6, 'approved', $7::jsonb, $8, $9, $10)`,
@@ -482,7 +608,7 @@ module.exports = function(pool) {
       );
 
       await client.query('COMMIT');
-      res.json({ ...uploadResult.rows[0], approvedSale: sale });
+      res.json({ ...uploadResult.rows[0], badge_allocations: badgeAllocations, approvedSale: sale });
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;
@@ -586,6 +712,10 @@ module.exports = function(pool) {
         return res.status(404).json({ error: 'Upload not found' });
       }
       const existing = existingResult.rows[0];
+      if (existing.status === 'approved' || existing.approved_sale_id) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'Approved uploads are retained for audit; stock-affecting corrections require a reviewed reversal.' });
+      }
 
       const changes = [];
       const merged = { ...existing };
@@ -677,23 +807,29 @@ module.exports = function(pool) {
     }
   }));
 
-  // DELETE /:businessId/uploads/:id - owner-only hard delete. The upload's
-  // sold_volume was already decremented from inventory when the matching
-  // sale was created, so deleting the upload without adding it back left
-  // the fuel stock permanently short by whatever that upload sold.
+  // Owner-only deletion is limited to unapproved uploads. Approved uploads are
+  // retained as accounting/audit records; deleting them without reversing the
+  // related sale and badge allocations would corrupt reconciliation.
   router.delete('/:businessId/uploads/:id', requireBusinessOwner, asyncHandler(async (req, res) => {
     const { businessId, id } = req.params;
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      const existingResult = await client.query(
+        'SELECT id, status, approved_sale_id FROM pump_daily_uploads WHERE id=$1 AND business_id=$2 FOR UPDATE', [id, businessId]
+      );
+      if (existingResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Upload not found' });
+      }
+      if (existingResult.rows[0].status === 'approved' || existingResult.rows[0].approved_sale_id) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'Approved uploads are retained for audit; create a reviewed stock reversal instead of deleting the sale record.' });
+      }
       const result = await client.query(
         'DELETE FROM pump_daily_uploads WHERE id = $1 AND business_id = $2 RETURNING id, product_id, sold_volume, approved_stock_deduction_applied',
         [id, businessId]
       );
-      if (result.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ error: 'Upload not found' });
-      }
       const deleted = result.rows[0];
       const soldVolume = parseFloat(deleted.sold_volume) || 0;
       if (deleted.approved_stock_deduction_applied && deleted.product_id && soldVolume > 0) {
@@ -707,6 +843,140 @@ module.exports = function(pool) {
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;
+    } finally {
+      client.release();
+    }
+  }));
+
+  // ---------- Petroleum badge stock and physical reconciliation ----------
+
+  router.get('/:businessId/badges', asyncHandler(async (req, res) => {
+    const { businessId } = req.params;
+    const params = [businessId];
+    let filter = '';
+    if (req.query.badgeId) { params.push(req.query.badgeId); filter = ' AND b.id = $2'; }
+    const result = await pool.query(
+      `SELECT b.*, COALESCE((SELECT SUM(a.quantity) FROM petroleum_badge_allocations a WHERE a.badge_batch_id=b.id AND a.reversed_at IS NULL),0) AS allocated_quantity
+       FROM petroleum_badge_batches b WHERE b.business_id=$1${filter} ORDER BY b.created_at,b.id`, params);
+    res.json({ data: result.rows });
+  }));
+
+  router.get('/:businessId/badges/summary', asyncHandler(async (req, res) => {
+    const result = await pool.query(
+      `SELECT i.id AS product_id,i.name AS product_name,i.unit,COALESCE(SUM(b.remaining_quantity),0) AS expected_quantity,
+         d.actual_quantity,d.measured_at AS last_measured_at,d.recorded_by,d.recorded_by_name,d.note,
+         CASE WHEN d.actual_quantity IS NULL THEN NULL ELSE d.actual_quantity-COALESCE(SUM(b.remaining_quantity),0) END AS variance
+       FROM inventory i LEFT JOIN petroleum_badge_batches b ON b.business_id=i.business_id AND b.product_id=i.id
+       LEFT JOIN LATERAL (SELECT * FROM petroleum_tank_dips x WHERE x.business_id=i.business_id AND x.product_id=i.id ORDER BY x.measured_at DESC LIMIT 1) d ON true
+       WHERE i.business_id=$1 AND LOWER(CONCAT_WS(' ',i.category,i.name,i.unit)) ~ '(fuel|petrol|diesel|kerosene|petroleum|pms|ago|dpk|gas)'
+       GROUP BY i.id,i.name,i.unit,d.actual_quantity,d.measured_at,d.recorded_by,d.recorded_by_name,d.note ORDER BY i.name`, [req.params.businessId]);
+    res.json({ data: result.rows });
+  }));
+
+  router.get('/:businessId/accountability', asyncHandler(async (req, res) => {
+    const { businessId } = req.params;
+    const badgeId = req.query.badgeId || null;
+    return sendBadgeAccountability(pool, req, res, businessId, badgeId);
+  }));
+
+  router.get('/:businessId/badges/:badgeId/accountability', asyncHandler(async (req, res) => {
+    const { businessId, badgeId } = req.params;
+    return sendBadgeAccountability(pool, req, res, businessId, badgeId);
+  }));
+
+  router.get('/:businessId/badge-movements', asyncHandler(async (req, res) => {
+    const result = await pool.query('SELECT * FROM petroleum_badge_movements WHERE business_id=$1 ORDER BY created_at DESC LIMIT $2',
+      [req.params.businessId, Math.min(500, parseInt(req.query.limit)||200)]);
+    res.json({ data: result.rows });
+  }));
+
+  router.get('/:businessId/tank-dips', asyncHandler(async (req,res)=>{
+    const params=[req.params.businessId]; let filter='';
+    if(req.query.productId){params.push(req.query.productId);filter=' AND product_id=$2';}
+    const result=await pool.query(`SELECT * FROM petroleum_tank_dips WHERE business_id=$1${filter} ORDER BY measured_at DESC LIMIT $${params.length+1}`,
+      [...params,Math.min(500,parseInt(req.query.limit)||200)]);
+    res.json({data:result.rows});
+  }));
+
+  router.post('/:businessId/tank-dips', requireFields('product_id', 'actual_quantity'), asyncHandler(async (req, res) => {
+    const b = req.body || {};
+    const actual = Number(b.actual_quantity);
+    if (!Number.isFinite(actual) || actual < 0) {
+      return res.status(400).json({ error: 'actual_quantity must be a non-negative number' });
+    }
+    const result = await pool.query(
+      `INSERT INTO petroleum_tank_dips (business_id, product_id, actual_quantity, measured_at,
+         recorded_by, recorded_by_name, note, expected_quantity, variance)
+       SELECT $1, $2, $3, COALESCE($4::timestamptz, NOW()), $5, $6, $7,
+              COALESCE(SUM(b.remaining_quantity), 0),
+              $3 - COALESCE(SUM(b.remaining_quantity), 0)
+       FROM inventory i
+       LEFT JOIN petroleum_badge_batches b ON b.business_id = i.business_id AND b.product_id = i.id
+       WHERE i.business_id = $1 AND i.id = $2
+         AND LOWER(CONCAT_WS(' ', i.category, i.name, i.unit))
+             ~ '(fuel|petrol|diesel|kerosene|petroleum|pms|ago|dpk|gas)'
+       GROUP BY i.id RETURNING *`,
+      [req.params.businessId, b.product_id, actual, b.measured_at || null,
+       asUuidOrNull(b.recorded_by) || asUuidOrNull(req.user?.id),
+       b.recorded_by_name || null, b.note || b.notes || null]);
+    if (!result.rows.length) return res.status(404).json({error:'Petroleum product not found'});
+    res.status(201).json(result.rows[0]);
+  }));
+
+  router.get('/:businessId/deposit-allocations', asyncHandler(async (req,res)=>{
+    const r=await pool.query('SELECT * FROM petroleum_deposit_allocations WHERE business_id=$1 ORDER BY created_at DESC LIMIT $2',[req.params.businessId,Math.min(500,parseInt(req.query.limit)||200)]);
+    res.json({data:r.rows});
+  }));
+
+  router.post('/:businessId/bank-deposits/:depositId/allocations', requireFields('amount'), asyncHandler(async (req, res) => {
+    const b = req.body || {};
+    const amount = Number(b.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ error: 'amount must be positive' });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const depositResult = await client.query(
+        'SELECT id, amount FROM petroleum_bank_deposits WHERE id = $1 AND business_id = $2 FOR UPDATE',
+        [req.params.depositId, req.params.businessId]
+      );
+      if (depositResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Deposit not found' });
+      }
+      if (b.badge_id || b.badge_batch_id) {
+        const badgeResult = await client.query(
+          'SELECT id FROM petroleum_badge_batches WHERE id = $1 AND business_id = $2',
+          [b.badge_id || b.badge_batch_id, req.params.businessId]
+        );
+        if (badgeResult.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: 'Petroleum badge not found' });
+        }
+      }
+      const allocatedResult = await client.query(
+        'SELECT COALESCE(SUM(amount), 0) AS allocated FROM petroleum_deposit_allocations WHERE deposit_id = $1',
+        [req.params.depositId]
+      );
+      const remaining = Number(depositResult.rows[0].amount) - Number(allocatedResult.rows[0].allocated);
+      if (amount > remaining) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'Allocation exceeds the unallocated deposit balance', remaining_amount: remaining });
+      }
+      const result = await client.query(
+        `INSERT INTO petroleum_deposit_allocations
+           (business_id, deposit_id, cash_entry_id, badge_batch_id, amount, note, created_by, created_by_name)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+        [req.params.businessId, req.params.depositId, b.cash_entry_id || null,
+         b.badge_id || b.badge_batch_id || null, amount, b.note || null,
+         asUuidOrNull(b.recorded_by) || asUuidOrNull(req.user?.id), b.recorded_by_name || null]
+      );
+      await client.query('COMMIT');
+      res.status(201).json(result.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
     } finally {
       client.release();
     }

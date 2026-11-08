@@ -127,6 +127,9 @@ module.exports = function(pool) {
       id, invoice_number, invoice_type, status, customer_id, customer_name, customer_phone,
       customer_email, table_label, notes, lines, subtotal, tax, discount, total,
       converted_at, linked_sale_id, payment_method, worker_id, worker_name, store_id,
+      payment_breakdown, confirmed_by_id, confirmed_by_name, confirmed_at,
+      collected_by_id, collected_by_name, collected_at,
+      paid_by_id, paid_by_name, paid_at,
     } = req.body;
     const persistedId = id && UUID_RE.test(id) ? id : null;
     const persistedCustomerId = nullableUuid(customer_id);
@@ -138,11 +141,15 @@ module.exports = function(pool) {
       `INSERT INTO bar_invoices (
          id, business_id, invoice_number, invoice_type, status, customer_id, customer_name, customer_phone,
          customer_email, table_label, notes, lines, subtotal, tax, discount, total,
-         converted_at, linked_sale_id, payment_method, worker_id, worker_name, store_id
+         converted_at, linked_sale_id, payment_method, worker_id, worker_name, store_id,
+         payment_breakdown, confirmed_by_id, confirmed_by_name, confirmed_at,
+         collected_by_id, collected_by_name, collected_at,
+         paid_by_id, paid_by_name, paid_at
        ) VALUES (
          COALESCE($1::uuid, uuid_generate_v4()), $2, $3, $4, $5, $6, $7, $8,
          $9, $10, $11, $12, $13, $14, $15, $16,
-         $17, $18, $19, $20, $21, $22
+         $17, $18, $19, $20, $21, $22, COALESCE($23::jsonb, '{}'::jsonb),
+         $24, $25, $26, $27, $28, $29, $30, $31, $32
        )
        ON CONFLICT (id) DO UPDATE SET
          invoice_type = EXCLUDED.invoice_type, status = EXCLUDED.status, customer_id = EXCLUDED.customer_id,
@@ -151,7 +158,13 @@ module.exports = function(pool) {
          lines = EXCLUDED.lines, subtotal = EXCLUDED.subtotal, tax = EXCLUDED.tax, discount = EXCLUDED.discount,
          total = EXCLUDED.total, converted_at = EXCLUDED.converted_at, linked_sale_id = EXCLUDED.linked_sale_id,
          payment_method = EXCLUDED.payment_method, worker_id = EXCLUDED.worker_id, worker_name = EXCLUDED.worker_name,
-         store_id = EXCLUDED.store_id, updated_at = NOW()
+         store_id = EXCLUDED.store_id, payment_breakdown = EXCLUDED.payment_breakdown,
+         confirmed_by_id = EXCLUDED.confirmed_by_id, confirmed_by_name = EXCLUDED.confirmed_by_name,
+         confirmed_at = EXCLUDED.confirmed_at, collected_by_id = EXCLUDED.collected_by_id,
+         collected_by_name = EXCLUDED.collected_by_name, collected_at = EXCLUDED.collected_at,
+         paid_by_id = EXCLUDED.paid_by_id, paid_by_name = EXCLUDED.paid_by_name,
+         paid_at = EXCLUDED.paid_at,
+         updated_at = NOW()
        RETURNING *`,
       [
         persistedId, businessId, invoice_number, invoice_type || 'invoice', status || 'open',
@@ -159,6 +172,11 @@ module.exports = function(pool) {
         table_label || null, notes || null, JSON.stringify(lines || []), subtotal || 0, tax || 0,
         discount || 0, total || 0, converted_at || null, persistedLinkedSaleId, payment_method || null,
         persistedWorkerId, worker_name || null, persistedStoreId,
+        JSON.stringify(payment_breakdown || {}),
+        nullableUuid(req.body.confirmed_by_id), req.body.confirmed_by_name || null,
+        req.body.confirmed_at || null, nullableUuid(req.body.collected_by_id),
+        req.body.collected_by_name || null, req.body.collected_at || null,
+        nullableUuid(paid_by_id), paid_by_name || null, paid_at || null,
       ]
     );
     res.status(201).json(result.rows[0]);

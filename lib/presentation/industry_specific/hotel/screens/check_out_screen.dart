@@ -6,9 +6,108 @@ import '../../../../providers/hotel_provider.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/utils/currency.dart';
+import '../../../../data/models/payment_breakdown.dart';
+import '../../../shared/payment_breakdown_fields.dart';
 
-class CheckOutScreen extends StatelessWidget {
+class CheckOutScreen extends StatefulWidget {
   const CheckOutScreen({super.key});
+
+  @override
+  State<CheckOutScreen> createState() => _CheckOutScreenState();
+}
+
+class _CheckOutScreenState extends State<CheckOutScreen> {
+  Future<void> _confirmCheckout(Reservation reservation, double balance) async {
+    final cashController = TextEditingController(
+      text: balance > 0 ? balance.toStringAsFixed(2) : '',
+    );
+    final cardController = TextEditingController();
+    final transferController = TextEditingController();
+    final payment = await showDialog<PaymentBreakdown>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Confirm payment and check-out'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Balance due: ${formatCurrency(balance)}'),
+                const SizedBox(height: 16),
+                if (balance > 0) ...[
+                  PaymentBreakdownFields(
+                    cashController: cashController,
+                    cardController: cardController,
+                    transferController: transferController,
+                    onChanged: (_) => setDialogState(() {}),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Enter the full balance across cash, card, and transfer.',
+                    style: Theme.of(dialogContext).textTheme.bodySmall,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (balance <= 0) {
+                  Navigator.pop(dialogContext, const PaymentBreakdown());
+                  return;
+                }
+                final entered = PaymentBreakdown(
+                  cash: double.tryParse(cashController.text.trim()) ?? 0,
+                  card: double.tryParse(cardController.text.trim()) ?? 0,
+                  transfer:
+                      double.tryParse(transferController.text.trim()) ?? 0,
+                );
+                if ((entered.total - balance).abs() > 0.01) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                      content: Text('Payment total must equal the balance due.'),
+                    ),
+                  );
+                  return;
+                }
+                Navigator.pop(dialogContext, entered);
+              },
+              child: const Text('Confirm check-out'),
+            ),
+          ],
+        ),
+      ),
+    );
+    cashController.dispose();
+    cardController.dispose();
+    transferController.dispose();
+    if (payment == null || !mounted) return;
+
+    try {
+      final provider = context.read<HotelProvider>();
+      if (payment.total > 0) {
+        await provider.recordReservationPayment(reservation.id, payment);
+      }
+      await provider.checkOutReservation(reservation.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${reservation.guestName} checked out successfully.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not complete check-out: $error')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -88,23 +187,10 @@ class CheckOutScreen extends StatelessWidget {
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.green,
                             ),
-                            child: const Text('Check-out'),
+                            child: const Text('Payment & Check-out'),
                             onPressed: !canManageCheckOut
                                 ? null
-                                : () async {
-                                    await provider.checkOutReservationAsPaid(
-                                      r.id,
-                                    );
-                                    if (context.mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            '${r.guestName} checked out and payment updated',
-                                          ),
-                                        ),
-                                      );
-                                    }
-                                  },
+                                : () => _confirmCheckout(r, balance),
                           ),
                         ),
                         Container(

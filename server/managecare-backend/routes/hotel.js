@@ -150,6 +150,7 @@ module.exports = function(pool) {
       booking_source, company_name, vehicle_plate_number, vehicle_make, vehicle_model, vehicle_year, vehicle_color,
       payment_method, mixed_payment_note, stay_duration_type, estimated_arrival_at,
       check_in, check_out, adults, children, status, total_price, special_requests, payment_status,
+      amount_paid, payment_breakdown,
     } = req.body;
 
     const result = await pool.query(
@@ -158,13 +159,15 @@ module.exports = function(pool) {
          guest_id_type, guest_id_number, next_of_kin_name, next_of_kin_phone, next_of_kin_relationship,
          booking_source, company_name, vehicle_plate_number, vehicle_make, vehicle_model, vehicle_year, vehicle_color,
          payment_method, mixed_payment_note, stay_duration_type, estimated_arrival_at,
-         check_in, check_out, adults, children, status, total_price, special_requests, payment_status
+         check_in, check_out, adults, children, status, total_price, special_requests, payment_status,
+         amount_paid, payment_breakdown
        ) VALUES (
          COALESCE($1::uuid, uuid_generate_v4()), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
          $12, $13, $14, $15, $16,
          $17, $18, $19, $20, $21, $22, $23,
          $24, $25, $26, $27,
-         $28, $29, $30, $31, $32, $33, COALESCE($34::jsonb, '[]'::jsonb), $35
+         $28, $29, $30, $31, $32, $33, COALESCE($34::jsonb, '[]'::jsonb), $35, $36,
+         COALESCE($37::jsonb, '{}'::jsonb)
        )
        RETURNING *`,
       [
@@ -175,7 +178,8 @@ module.exports = function(pool) {
         vehicle_model || null, vehicle_year || null, vehicle_color || null, payment_method || 'cash', mixed_payment_note || null,
         stay_duration_type || 'full_day', estimated_arrival_at || null, check_in, check_out, adults || 1, children || 0,
         status || 'confirmed', total_price || 0, special_requests ? JSON.stringify(special_requests) : null,
-        payment_status || 'unpaid',
+        payment_status || 'unpaid', amount_paid || 0,
+        payment_breakdown ? JSON.stringify(payment_breakdown) : null,
       ]
     );
     res.status(201).json(result.rows[0]);
@@ -186,6 +190,7 @@ module.exports = function(pool) {
     const {
       status, payment_status, payment_method, mixed_payment_note, stay_duration_type,
       estimated_arrival_at, check_out, total_price, special_requests, cancel_reason,
+      amount_paid, payment_breakdown,
     } = req.body;
 
     const fields = [];
@@ -194,6 +199,11 @@ module.exports = function(pool) {
     const set = (col, val) => { if (val !== undefined) { fields.push(`${col} = $${paramIndex++}`); params.push(val); } };
     set('status', status);
     set('payment_status', payment_status);
+    set('amount_paid', amount_paid);
+    if (payment_breakdown !== undefined) {
+      fields.push(`payment_breakdown = $${paramIndex++}::jsonb`);
+      params.push(JSON.stringify(payment_breakdown));
+    }
     set('payment_method', payment_method);
     set('mixed_payment_note', mixed_payment_note);
     set('stay_duration_type', stay_duration_type);

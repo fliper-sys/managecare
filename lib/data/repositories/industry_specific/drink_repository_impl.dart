@@ -328,9 +328,19 @@ class DrinkRepositoryImpl implements DrinkRepository {
       'convertedAt': row['converted_at'],
       'linkedSaleId': row['linked_sale_id'],
       'paymentMethod': row['payment_method'],
+      'paymentBreakdown': row['payment_breakdown'],
       'workerId': row['worker_id'],
       'workerName': row['worker_name'],
       'storeId': row['store_id'],
+      'confirmedById': row['confirmed_by_id'],
+      'confirmedByName': row['confirmed_by_name'],
+      'confirmedAt': row['confirmed_at'],
+      'collectedById': row['collected_by_id'],
+      'collectedByName': row['collected_by_name'],
+      'collectedAt': row['collected_at'],
+      'paidById': row['paid_by_id'],
+      'paidByName': row['paid_by_name'],
+      'paidAt': row['paid_at'],
     });
   }
 
@@ -357,9 +367,25 @@ class DrinkRepositoryImpl implements DrinkRepository {
           : data['convertedAt']?.toString(),
       'linked_sale_id': data['linkedSaleId'],
       'payment_method': data['paymentMethod'],
+      'payment_breakdown': data['paymentBreakdown'],
       'worker_id': data['workerId'],
       'worker_name': data['workerName'],
       'store_id': data['storeId'],
+      'confirmed_by_id': data['confirmedById'],
+      'confirmed_by_name': data['confirmedByName'],
+      'confirmed_at': data['confirmedAt'] is DateTime
+          ? (data['confirmedAt'] as DateTime).toIso8601String()
+          : data['confirmedAt']?.toString(),
+      'collected_by_id': data['collectedById'],
+      'collected_by_name': data['collectedByName'],
+      'collected_at': data['collectedAt'] is DateTime
+          ? (data['collectedAt'] as DateTime).toIso8601String()
+          : data['collectedAt']?.toString(),
+      'paid_by_id': data['paidById'],
+      'paid_by_name': data['paidByName'],
+      'paid_at': data['paidAt'] is DateTime
+          ? (data['paidAt'] as DateTime).toIso8601String()
+          : data['paidAt']?.toString(),
     };
 
     DioException? lastError;
@@ -494,6 +520,8 @@ class DrinkRepositoryImpl implements DrinkRepository {
               saleData['totalAmount'],
           'payment_method':
               saleData['paymentMethod'] ?? saleData['payment_method'],
+          'payment_breakdown':
+              saleData['paymentBreakdown'] ?? saleData['payment_breakdown'],
           'status': saleData['status'] ?? 'completed',
           'notes': saleData['notes'],
           'created_by': saleData['workerId'],

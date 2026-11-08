@@ -7,6 +7,7 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../services/managecare_api_client.dart';
 import '../utils/pump_row_mapper.dart';
+import 'petroleum_badge_context.dart';
 
 class ManagerPumpUploadReviewScreen extends StatefulWidget {
   const ManagerPumpUploadReviewScreen({super.key, this.initialUploadId});
@@ -47,13 +48,15 @@ class _ManagerPumpUploadReviewScreenState
         } catch (_) {}
         await Future.delayed(_pollInterval);
       }
-    })().asBroadcastStream();
+    })()
+        .asBroadcastStream();
     return _pendingStream!;
   }
 
   double _readDouble(dynamic value) {
     if (value is num) return value.toDouble();
-    return double.tryParse(value?.toString().replaceAll(',', '').trim() ?? '') ??
+    return double.tryParse(
+            value?.toString().replaceAll(',', '').trim() ?? '') ??
         0.0;
   }
 
@@ -114,17 +117,16 @@ class _ManagerPumpUploadReviewScreenState
                   controller: entryControllers['pieces'],
                   keyboardType: TextInputType.number,
                   onChanged: (value) {
-                    final denomination =
-                        double.tryParse(entryControllers['denomination']!.text) ??
-                            0;
+                    final denomination = double.tryParse(
+                            entryControllers['denomination']!.text) ??
+                        0;
                     final pieces = int.tryParse(value) ?? 0;
                     final amountController = entryControllers['amount']!;
                     amountController.value = TextEditingValue(
                       text: (denomination * pieces).toStringAsFixed(2),
                       selection: TextSelection.collapsed(
-                        offset: (denomination * pieces)
-                            .toStringAsFixed(2)
-                            .length,
+                        offset:
+                            (denomination * pieces).toStringAsFixed(2).length,
                       ),
                     );
                   },
@@ -146,7 +148,8 @@ class _ManagerPumpUploadReviewScreenState
     );
   }
 
-  Future<void> _openReview(String businessId, Map<String, dynamic> upload) async {
+  Future<void> _openReview(
+      String businessId, Map<String, dynamic> upload) async {
     try {
       final detail = await ManagecareApiClient.instance.get(
         '/api/pumps/$businessId/uploads/${upload['id']}',
@@ -173,11 +176,11 @@ class _ManagerPumpUploadReviewScreenState
       'closing_volume': upload['closingVolume'],
       'analog_opening_volume': upload['analogOpeningVolume'],
       'analog_closing_volume': upload['analogClosingVolume'],
-        'sold_volume': _readDouble(upload['productPrice']) > 0
+      'sold_volume': _readDouble(upload['productPrice']) > 0
           ? ((_readDouble(upload['shiftCloseCash']) -
-                _readDouble(upload['shiftOpeningCash'])) /
-              _readDouble(upload['productPrice']))
-            .clamp(0.0, double.infinity)
+                      _readDouble(upload['shiftOpeningCash'])) /
+                  _readDouble(upload['productPrice']))
+              .clamp(0.0, double.infinity)
           : upload['soldVolume'],
       'shift_opening_cash': upload['shiftOpeningCash'],
       'shift_close_cash': upload['shiftCloseCash'],
@@ -187,7 +190,7 @@ class _ManagerPumpUploadReviewScreenState
     final controllers = {
       for (final key in fields.keys)
         key: TextEditingController(
-            text: _readDouble(source[key]).toString(),
+          text: _readDouble(source[key]).toString(),
         )
     };
     final breakdownControllers = <int, Map<String, TextEditingController>>{};
@@ -216,10 +219,14 @@ class _ManagerPumpUploadReviewScreenState
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _reviewImage(upload['shiftOpeningCashPhotoUrl'], 'Shift opening cash image'),
-                _reviewImage(upload['shiftCloseCashPhotoUrl'], 'Shift close cash image'),
-                _reviewImage(upload['openingPhotoUrl'], 'Opening pump volume image'),
-                _reviewImage(upload['closingPhotoUrl'], 'Closing pump volume image'),
+                _reviewImage(upload['shiftOpeningCashPhotoUrl'],
+                    'Shift opening cash image'),
+                _reviewImage(
+                    upload['shiftCloseCashPhotoUrl'], 'Shift close cash image'),
+                _reviewImage(
+                    upload['openingPhotoUrl'], 'Opening pump volume image'),
+                _reviewImage(
+                    upload['closingPhotoUrl'], 'Closing pump volume image'),
                 _cashBreakdownEditor(
                   upload['cashBreakdown'],
                   breakdownControllers,
@@ -259,7 +266,7 @@ class _ManagerPumpUploadReviewScreenState
                     controller: controllers[entry.key],
                     readOnly: entry.key == 'sold_volume',
                     keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
+                        const TextInputType.numberWithOptions(decimal: true),
                     decoration: InputDecoration(labelText: entry.value),
                   ),
                   const SizedBox(height: 8),
@@ -316,7 +323,8 @@ class _ManagerPumpUploadReviewScreenState
                         double.tryParse(entry.value['denomination']!.text) ?? 0,
                     'pieces': int.tryParse(entry.value['pieces']!.text) ?? 0,
                     'amount':
-                        (double.tryParse(entry.value['denomination']!.text) ?? 0) *
+                        (double.tryParse(entry.value['denomination']!.text) ??
+                                0) *
                             (int.tryParse(entry.value['pieces']!.text) ?? 0),
                   },
               ],
@@ -405,77 +413,100 @@ class _ManagerPumpUploadReviewScreenState
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     final user = context.watch<AuthProvider>().currentUser;
     final role = WorkerPermissions.normalizeRole(user?.role ?? '');
-    final canReview = user?.isOwner == true ||
-        WorkerPermissions.canManagePumpDisputes(role);
+    final canReview =
+        user?.isOwner == true || WorkerPermissions.canManagePumpDisputes(role);
     final dateFormat = DateFormat.yMMMd().add_jm();
     return Scaffold(
       appBar: AppBar(title: const Text('Pump Upload Review')),
       body: !canReview
           ? const Center(child: Text('Only managers can review pump uploads'))
           : businessId == null || businessId.isEmpty
-          ? const Center(child: Text('No business selected'))
-          : StreamBuilder<List<Map<String, dynamic>>>(
-              stream: _pendingUploads(businessId),
-              builder: (context, snapshot) {
-                final rows = snapshot.data ?? [];
-                final targetId = widget.initialUploadId;
-                if (targetId != null &&
-                    targetId.isNotEmpty &&
-                    _openedUploadId != targetId) {
-                  final target = rows.cast<Map<String, dynamic>?>().firstWhere(
-                        (row) => row?['id']?.toString() == targetId,
-                        orElse: () => null,
+              ? const Center(child: Text('No business selected'))
+              : StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: _pendingUploads(businessId),
+                  builder: (context, snapshot) {
+                    final rows = snapshot.data ?? [];
+                    final targetId = widget.initialUploadId;
+                    if (targetId != null &&
+                        targetId.isNotEmpty &&
+                        _openedUploadId != targetId) {
+                      final target =
+                          rows.cast<Map<String, dynamic>?>().firstWhere(
+                                (row) => row?['id']?.toString() == targetId,
+                                orElse: () => null,
+                              );
+                      if (target != null) {
+                        _openedUploadId = targetId;
+                        WidgetsBinding.instance.addPostFrameCallback(
+                          (_) => _openReview(businessId, target),
+                        );
+                      }
+                    }
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        rows.isEmpty) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (rows.isEmpty) {
+                      return const Column(
+                        children: [
+                          Padding(
+                              padding: EdgeInsets.all(16),
+                              child: PetroleumBadgeContextBar()),
+                          Expanded(
+                              child: Center(
+                                  child: Text('No pending pump uploads'))),
+                        ],
                       );
-                  if (target != null) {
-                    _openedUploadId = targetId;
-                    WidgetsBinding.instance.addPostFrameCallback(
-                      (_) => _openReview(businessId, target),
-                    );
-                  }
-                }
-                if (snapshot.connectionState == ConnectionState.waiting &&
-                    rows.isEmpty) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (rows.isEmpty) {
-                  return const Center(child: Text('No pending pump uploads'));
-                }
-                return ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: rows.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (context, index) {
-                    final upload = rows[index];
-                    final submitted = _readDate(
-                      upload['submittedAt'] ?? upload['uploadedAt'],
-                    );
-                    final total = _readDouble(upload['totalPaid']);
-                    return Card(
-                      child: ListTile(
-                        leading: const Icon(Icons.pending_actions_outlined),
-                        title: Text(
-                          'Pump ${upload['pumpNumber'] ?? ''} - ${upload['productName'] ?? 'Fuel'}',
+                    }
+                    return Column(
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
+                          child: PetroleumBadgeContextBar(),
                         ),
-                        subtitle: Text(
-                          [
-                            'Operator: ${upload['workerName'] ?? 'N/A'}',
-                            'Sold: ${_readDouble(upload['soldVolume']).toStringAsFixed(3)} ${upload['productUnit'] ?? 'L'}',
-                            'Total: ${total.toStringAsFixed(2)}',
-                            if (submitted != null)
-                              'Submitted: ${dateFormat.format(submitted)}',
-                          ].join('\n'),
+                        Expanded(
+                          child: ListView.separated(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: rows.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (context, index) {
+                              final upload = rows[index];
+                              final submitted = _readDate(
+                                upload['submittedAt'] ?? upload['uploadedAt'],
+                              );
+                              final total = _readDouble(upload['totalPaid']);
+                              return Card(
+                                child: ListTile(
+                                  leading: const Icon(
+                                      Icons.pending_actions_outlined),
+                                  title: Text(
+                                    'Pump ${upload['pumpNumber'] ?? ''} - ${upload['productName'] ?? 'Fuel'}',
+                                  ),
+                                  subtitle: Text(
+                                    [
+                                      'Operator: ${upload['workerName'] ?? 'N/A'}',
+                                      'Sold: ${_readDouble(upload['soldVolume']).toStringAsFixed(3)} ${upload['productUnit'] ?? 'L'}',
+                                      'Total: ${total.toStringAsFixed(2)}',
+                                      if (submitted != null)
+                                        'Submitted: ${dateFormat.format(submitted)}',
+                                    ].join('\n'),
+                                  ),
+                                  isThreeLine: true,
+                                  trailing: ElevatedButton(
+                                    onPressed: () =>
+                                        _openReview(businessId, upload),
+                                    child: const Text('Review'),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
                         ),
-                        isThreeLine: true,
-                        trailing: ElevatedButton(
-                          onPressed: () => _openReview(businessId, upload),
-                          child: const Text('Review'),
-                        ),
-                      ),
+                      ],
                     );
                   },
-                );
-              },
-            ),
+                ),
     );
   }
 }

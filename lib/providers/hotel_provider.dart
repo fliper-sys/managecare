@@ -6,6 +6,7 @@ import '../services/business_notification_manager.dart';
 import '../services/hospitality_folio_service.dart';
 import '../services/notification_and_email_service.dart';
 import '../services/managecare_api_client.dart';
+import '../data/models/payment_breakdown.dart';
 
 // Room Models
 class Room {
@@ -129,6 +130,8 @@ class Reservation {
   final double totalPrice;
   final List<String> specialRequests;
   final String paymentStatus; // unpaid, partial, paid
+  final double amountPaid;
+  final Map<String, double> paymentBreakdown;
   final DateTime createdAt;
 
   Reservation({
@@ -165,6 +168,8 @@ class Reservation {
     required this.totalPrice,
     required this.specialRequests,
     required this.paymentStatus,
+    this.amountPaid = 0,
+    this.paymentBreakdown = const {},
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
@@ -202,6 +207,8 @@ class Reservation {
     double? totalPrice,
     List<String>? specialRequests,
     String? paymentStatus,
+    double? amountPaid,
+    Map<String, double>? paymentBreakdown,
     DateTime? createdAt,
   }) {
     return Reservation(
@@ -239,6 +246,8 @@ class Reservation {
       totalPrice: totalPrice ?? this.totalPrice,
       specialRequests: specialRequests ?? this.specialRequests,
       paymentStatus: paymentStatus ?? this.paymentStatus,
+      amountPaid: amountPaid ?? this.amountPaid,
+      paymentBreakdown: paymentBreakdown ?? this.paymentBreakdown,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -387,6 +396,7 @@ class HotelProvider extends ChangeNotifier {
       return;
     await loadFromRepository();
     await syncReservations();
+    await _syncRoomStatuses();
     await _loadServiceOrders();
     await _loadFolioCharges();
   }
@@ -582,8 +592,8 @@ class HotelProvider extends ChangeNotifier {
         'reservationCount': (current?['reservationCount'] ?? 0) + 1,
         'checkedInCount': (current?['checkedInCount'] ?? 0) +
             (reservation.status == 'checked-in' ? 1 : 0),
-        'totalSpend': (current?['totalSpend'] ?? 0.0) +
-            getReservationBalance(reservation),
+        'totalSpend':
+            (current?['totalSpend'] ?? 0.0) + reservation.amountPaid,
         'lastReservation': reservation,
         'roomNumber': room?.number ?? '',
       };
@@ -652,13 +662,10 @@ class HotelProvider extends ChangeNotifier {
 
   List<Map<String, dynamic>> buildFolioCharges(Reservation reservation) {
     final room = getRoomById(reservation.roomId);
-    final roomRate = room?.pricePerNight ?? 0.0;
-    final nights = reservation.nights <= 0 ? 1 : reservation.nights;
     final charges = <Map<String, dynamic>>[
       {
-        'description':
-            'Room ${room?.number ?? reservation.roomId} x $nights night${nights == 1 ? '' : 's'}',
-        'amount': roomRate * nights,
+        'description': 'Room ${room?.number ?? reservation.roomId}',
+        'amount': reservation.totalPrice,
         'type': 'room',
       },
     ];
@@ -703,10 +710,24 @@ class HotelProvider extends ChangeNotifier {
   }
 
   double getReservationBalance(Reservation reservation) {
-    return buildFolioCharges(reservation).fold<double>(
+    final total = buildFolioCharges(reservation).fold<double>(
       0.0,
       (sum, charge) => sum + ((charge['amount'] as num?)?.toDouble() ?? 0.0),
     );
+    return (total - reservation.amountPaid)
+        .clamp(0.0, double.infinity)
+        .toDouble();
+  }
+
+  String _formatPaymentBreakdown(Map<String, double> breakdown) {
+    return [
+      if ((breakdown['cash'] ?? 0) > 0)
+        'Cash ${breakdown['cash']!.toStringAsFixed(2)}',
+      if ((breakdown['card'] ?? 0) > 0)
+        'Card ${breakdown['card']!.toStringAsFixed(2)}',
+      if ((breakdown['transfer'] ?? 0) > 0)
+        'Transfer ${breakdown['transfer']!.toStringAsFixed(2)}',
+    ].join(', ');
   }
 
   bool _sameCalendarDay(DateTime a, DateTime b) {
@@ -800,7 +821,7 @@ class HotelProvider extends ChangeNotifier {
       final room = getRoomById(reservation.roomId);
       final totalSpend = relatedReservations.fold<double>(
         0.0,
-        (sum, item) => sum + getReservationBalance(item),
+        (sum, item) => sum + item.amountPaid,
       );
       final checkedInCount = relatedReservations
           .where((item) => item.status == 'checked-in')
@@ -854,7 +875,10 @@ class HotelProvider extends ChangeNotifier {
   }) {
     final resolvedRoom = room ?? getRoomById(reservation.roomId);
     final charges = buildFolioCharges(reservation);
-    final total = getReservationBalance(reservation);
+    final total = charges.fold<double>(
+      0,
+      (sum, charge) => sum + ((charge['amount'] as num?)?.toDouble() ?? 0),
+    );
     final resolvedPaymentMethod =
         paymentMethod ?? _defaultHotelPaymentMethod(reservation);
     final resolvedSaleId = saleId ?? 'hotel_${reservation.id}';
@@ -888,6 +912,13 @@ class HotelProvider extends ChangeNotifier {
       'paymentStatus': reservation.paymentStatus,
       'paymentMethod': resolvedPaymentMethod,
       'paymentMethods': [resolvedPaymentMethod],
+      'paymentBreakdown': reservation.paymentBreakdown.entries
+          .where((entry) => entry.value > 0)
+          .map((entry) => {
+                'method': entry.key,
+                'amount': entry.value,
+              })
+          .toList(),
       'items': items,
       'subtotal': total,
       'tax': 0.0,
@@ -956,7 +987,7 @@ class HotelProvider extends ChangeNotifier {
       return saleMap;
     }
 
-    await ManagecareApiClient.instance.post('/api/sales/$_businessId', body: {
+    final saleBody = {
       'id': saleId,
       'customer_id': null,
       'store_id': null,
@@ -967,6 +998,7 @@ class HotelProvider extends ChangeNotifier {
       'tax_amount': saleMap['tax'],
       'final_amount': saleMap['finalAmount'],
       'payment_method': saleMap['paymentMethod'],
+      'payment_breakdown': saleMap['paymentBreakdown'],
       'status': saleMap['status'],
       'notes':
           'Hotel reservation ${reservation.id} (room ${saleMap['roomNumber']})',
@@ -983,7 +1015,28 @@ class HotelProvider extends ChangeNotifier {
           'total': item['total'],
         };
       }).toList(),
-    });
+    };
+    try {
+      await ManagecareApiClient.instance.put(
+        '/api/sales/$_businessId/$saleId',
+        body: {
+          'total_amount': saleBody['total_amount'],
+          'discount_amount': saleBody['discount_amount'],
+          'tax_amount': saleBody['tax_amount'],
+          'final_amount': saleBody['final_amount'],
+          'payment_method': saleBody['payment_method'],
+          'payment_breakdown': saleBody['payment_breakdown'],
+          'status': saleBody['status'],
+          'notes': saleBody['notes'],
+        },
+      );
+    } on ManagecareApiException catch (error) {
+      if (error.statusCode != 404) rethrow;
+      await ManagecareApiClient.instance.post(
+        '/api/sales/$_businessId',
+        body: saleBody,
+      );
+    }
 
     if (sendNotifications) {
       try {
@@ -1213,12 +1266,34 @@ class HotelProvider extends ChangeNotifier {
   }
 
   // Room Management
-  void updateRoomStatus(String roomId, String newStatus) {
+  Future<void> updateRoomStatus(String roomId, String newStatus) async {
     final index = _rooms.indexWhere((r) => r.id == roomId);
-    if (index >= 0) {
-      _rooms[index] = _rooms[index].copyWith(status: newStatus);
-      _updateOccupancy();
-      notifyListeners();
+    if (index < 0) return;
+    if (repository != null && _businessId != null && _businessId!.isNotEmpty) {
+      await repository!.updateRoomStatus(_businessId!, roomId, newStatus);
+    }
+    _rooms[index] = _rooms[index].copyWith(status: newStatus);
+    _updateOccupancy();
+    notifyListeners();
+  }
+
+  Future<void> _syncRoomStatusFromReservations(String roomId) async {
+    final room = getRoomById(roomId);
+    if (room == null || room.status == 'maintenance') return;
+
+    final roomReservations =
+        _reservations.where((reservation) => reservation.roomId == roomId);
+    final status = roomReservations.any((r) => r.status == 'checked-in')
+        ? 'occupied'
+        : roomReservations.any((r) => r.status == 'confirmed')
+            ? 'reserved'
+            : 'available';
+    if (room.status != status) await updateRoomStatus(roomId, status);
+  }
+
+  Future<void> _syncRoomStatuses() async {
+    for (final room in List<Room>.from(_rooms)) {
+      await _syncRoomStatusFromReservations(room.id);
     }
   }
 
@@ -1439,6 +1514,8 @@ class HotelProvider extends ChangeNotifier {
     String vehicleColor = '',
     String paymentMethod = 'cash',
     String mixedPaymentNote = '',
+    double amountPaid = 0,
+    PaymentBreakdown? paymentBreakdown,
     String stayDurationType = 'full_day',
     DateTime? estimatedArrivalAt,
     String status = 'confirmed',
@@ -1478,6 +1555,35 @@ class HotelProvider extends ChangeNotifier {
     final totalPrice = isHalfDay
         ? (room.halfDayPrice > 0 ? room.halfDayPrice : room.pricePerNight / 2)
         : room.pricePerNight * (nights <= 0 ? 1 : nights);
+    final initialPayment = paymentBreakdown ??
+        PaymentBreakdown(
+          cash: paymentMethod == 'cash' ? amountPaid : 0,
+          card: paymentMethod == 'card' ? amountPaid : 0,
+          transfer: paymentMethod == 'transfer' ? amountPaid : 0,
+        );
+    if (!initialPayment.isValid) {
+      throw ArgumentError('Payment amounts cannot be negative or invalid.');
+    }
+    if (amountPaid > 0 &&
+        paymentMethod == 'mixed' &&
+        initialPayment.total == 0) {
+      throw ArgumentError('Mixed payments require a payment breakdown.');
+    }
+    if (amountPaid > 0 &&
+        initialPayment.total > 0 &&
+        (amountPaid - initialPayment.total).abs() > 0.01) {
+      throw ArgumentError('Payment amount must match its breakdown.');
+    }
+    final recordedAmount =
+        initialPayment.total > 0 ? initialPayment.total : amountPaid;
+    if (recordedAmount < 0 || recordedAmount > totalPrice + 0.01) {
+      throw Exception('Initial payment must be between zero and the booking total.');
+    }
+    final recordedPaymentStatus = recordedAmount <= 0
+        ? 'unpaid'
+        : recordedAmount + 0.01 >= totalPrice
+            ? 'paid'
+            : 'partial';
     String reservationId = 'B${_reservations.length + 1}';
 
     var reservation = Reservation(
@@ -1502,8 +1608,10 @@ class HotelProvider extends ChangeNotifier {
       vehicleModel: vehicleModel,
       vehicleYear: vehicleYear,
       vehicleColor: vehicleColor,
-      paymentMethod: paymentMethod,
-      mixedPaymentNote: mixedPaymentNote,
+      paymentMethod: recordedAmount > 0 ? initialPayment.method : paymentMethod,
+      mixedPaymentNote: recordedAmount > 0
+          ? _formatPaymentBreakdown(initialPayment.toJson())
+          : mixedPaymentNote,
       stayDurationType: stayDurationType,
       estimatedArrivalAt: estimatedArrivalAt,
       checkIn: checkIn,
@@ -1513,7 +1621,9 @@ class HotelProvider extends ChangeNotifier {
       status: status,
       totalPrice: totalPrice,
       specialRequests: specialRequests,
-      paymentStatus: 'unpaid',
+      paymentStatus: recordedPaymentStatus,
+      amountPaid: recordedAmount,
+      paymentBreakdown: initialPayment.toJson(),
     );
 
     _reservations.add(reservation);
@@ -1554,6 +1664,8 @@ class HotelProvider extends ChangeNotifier {
         'totalPrice': reservation.totalPrice,
         'specialRequests': reservation.specialRequests,
         'paymentStatus': reservation.paymentStatus,
+        'amountPaid': reservation.amountPaid,
+        'paymentBreakdown': reservation.paymentBreakdown,
         'createdAt': reservation.createdAt.toIso8601String(),
       });
 
@@ -1565,8 +1677,12 @@ class HotelProvider extends ChangeNotifier {
     }
 
     final persistedReservation = _reservations.last;
-    if (persistedReservation.status == 'checked-in') {
-      updateRoomStatus(persistedReservation.roomId, 'occupied');
+    await _syncRoomStatusFromReservations(persistedReservation.roomId);
+    if (persistedReservation.paymentStatus == 'paid') {
+      await persistReservationSale(
+        persistedReservation.id,
+        paymentMethod: persistedReservation.paymentMethod,
+      );
     }
     await _syncGuestProfile(persistedReservation);
 
@@ -1643,136 +1759,113 @@ class HotelProvider extends ChangeNotifier {
   }
 
   Future<void> updateReservationStatus(
-      String reservationId, String newStatus) async {
+    String reservationId,
+    String newStatus, {
+    String? cancelReason,
+  }) async {
     final index = _reservations.indexWhere((r) => r.id == reservationId);
-    if (index >= 0) {
-      _reservations[index] = _reservations[index].copyWith(status: newStatus);
+    if (index < 0) throw StateError('Reservation not found.');
 
-      if (newStatus == 'checked-in') {
-        updateRoomStatus(_reservations[index].roomId, 'occupied');
-      } else if (newStatus == 'checked-out') {
-        updateRoomStatus(_reservations[index].roomId, 'available');
-      } else if (newStatus == 'cancelled') {
-        updateRoomStatus(_reservations[index].roomId, 'available');
-      }
-
-      if (repository != null &&
-          _businessId != null &&
-          _businessId!.isNotEmpty) {
-        try {
-          await repository!.updateReservation(
-              _businessId!, reservationId, {'status': newStatus});
-        } catch (e) {
-          debugPrint('[HotelProvider] updateReservationStatus error: $e');
-        }
-      }
-
-      await _syncGuestProfile(_reservations[index]);
-
-      if (newStatus == 'checked-out' &&
-          _reservations[index].paymentStatus == 'paid') {
-        try {
-          await persistReservationSale(
-            reservationId,
-            sendNotifications: false,
-          );
-        } catch (e) {
-          debugPrint(
-              '[HotelProvider] persistReservationSale on checkout error: $e');
-        }
-      }
-
-      notifyListeners();
+    final reservation = _reservations[index];
+    if (newStatus == 'checked-out' &&
+        getReservationBalance(reservation) > 0.01) {
+      throw StateError('Settle the outstanding balance before checkout.');
     }
+    if (repository != null && _businessId != null && _businessId!.isNotEmpty) {
+      await repository!.updateReservation(_businessId!, reservationId, {
+        'status': newStatus,
+        if (cancelReason != null && cancelReason.trim().isNotEmpty)
+          'cancelReason': cancelReason.trim(),
+      });
+    }
+
+    final updatedReservation = reservation.copyWith(status: newStatus);
+    _reservations[index] = updatedReservation;
+    await _syncRoomStatusFromReservations(reservation.roomId);
+    await _syncGuestProfile(updatedReservation);
+
+    if (newStatus == 'checked-out' &&
+        updatedReservation.paymentStatus == 'paid') {
+      await persistReservationSale(
+        reservationId,
+        sendNotifications: false,
+      );
+    }
+
+    notifyListeners();
   }
 
   Future<void> cancelReservation(String reservationId, {String? reason}) async {
-    await updateReservationStatus(reservationId, 'cancelled');
-    if (reason != null && reason.isNotEmpty) {
-      // optional reason stored in Firestore if supported
-      if (repository != null &&
-          _businessId != null &&
-          _businessId!.isNotEmpty) {
-        try {
-          await repository!.updateReservation(
-              _businessId!, reservationId, {'cancelReason': reason});
-        } catch (e) {
-          debugPrint(
-              '[HotelProvider] cancelReservation reason store error: $e');
-        }
-      }
-    }
-  }
-
-  Future<void> updatePaymentStatus(
-      String reservationId, String paymentStatus) async {
-    final index = _reservations.indexWhere((r) => r.id == reservationId);
-    if (index >= 0) {
-      _reservations[index] =
-          _reservations[index].copyWith(paymentStatus: paymentStatus);
-
-      if (repository != null &&
-          _businessId != null &&
-          _businessId!.isNotEmpty) {
-        try {
-          await repository!.updateReservation(
-              _businessId!, reservationId, {'paymentStatus': paymentStatus});
-        } catch (e) {
-          debugPrint('[HotelProvider] updatePaymentStatus error: $e');
-        }
-      }
-
-      await _syncGuestProfile(_reservations[index]);
-
-      if (paymentStatus == 'paid') {
-        try {
-          await persistReservationSale(
-            reservationId,
-            paymentMethod: 'hotel_billing',
-          );
-        } catch (e) {
-          debugPrint(
-              '[HotelProvider] persistReservationSale on payment error: $e');
-        }
-      }
-
-      notifyListeners();
-    }
-  }
-
-  Future<void> checkOutReservationAsPaid(String reservationId) async {
-    final index = _reservations.indexWhere((r) => r.id == reservationId);
-    if (index < 0) return;
-
-    _reservations[index] = _reservations[index].copyWith(
-      status: 'checked-out',
-      paymentStatus: 'paid',
+    await updateReservationStatus(
+      reservationId,
+      'cancelled',
+      cancelReason: reason,
     );
-    updateRoomStatus(_reservations[index].roomId, 'available');
+  }
+
+  Future<void> recordReservationPayment(
+    String reservationId,
+    PaymentBreakdown payment,
+  ) async {
+    final index = _reservations.indexWhere((r) => r.id == reservationId);
+    if (index < 0) throw StateError('Reservation not found.');
+    if (!payment.isValid || payment.total <= 0) {
+      throw ArgumentError('Payment amount must be greater than zero.');
+    }
+    final reservation = _reservations[index];
+    final balance = getReservationBalance(reservation);
+    if (payment.total > balance + 0.01) {
+      throw ArgumentError('Payment cannot exceed the outstanding balance.');
+    }
+
+    final breakdown = Map<String, double>.from(reservation.paymentBreakdown);
+    for (final entry in payment.toJson().entries) {
+      breakdown[entry.key] = (breakdown[entry.key] ?? 0) + entry.value;
+    }
+    final amountPaid = reservation.amountPaid + payment.total;
+    final paymentStatus = amountPaid + 0.01 >=
+            buildFolioCharges(reservation).fold<double>(
+              0,
+              (sum, charge) =>
+                  sum + ((charge['amount'] as num?)?.toDouble() ?? 0),
+            )
+        ? 'paid'
+        : 'partial';
+    final updatedReservation = reservation.copyWith(
+      amountPaid: amountPaid,
+      paymentBreakdown: breakdown,
+      paymentStatus: paymentStatus,
+      paymentMethod: PaymentBreakdown(
+        cash: breakdown['cash'] ?? 0,
+        card: breakdown['card'] ?? 0,
+        transfer: breakdown['transfer'] ?? 0,
+      ).method,
+      mixedPaymentNote: _formatPaymentBreakdown(breakdown),
+    );
 
     if (repository != null && _businessId != null && _businessId!.isNotEmpty) {
-      try {
-        await repository!.updateReservation(_businessId!, reservationId, {
-          'status': 'checked-out',
-          'paymentStatus': 'paid',
-        });
-      } catch (e) {
-        debugPrint('[HotelProvider] checkOutReservationAsPaid error: $e');
-      }
+      await repository!.updateReservation(_businessId!, reservationId, {
+        'amountPaid': updatedReservation.amountPaid,
+        'paymentBreakdown': updatedReservation.paymentBreakdown,
+        'paymentStatus': updatedReservation.paymentStatus,
+        'paymentMethod': updatedReservation.paymentMethod,
+        'mixedPaymentNote': updatedReservation.mixedPaymentNote,
+      });
     }
 
-    await _syncGuestProfile(_reservations[index]);
-    try {
+    _reservations[index] = updatedReservation;
+    await _syncGuestProfile(updatedReservation);
+    if (paymentStatus == 'paid') {
       await persistReservationSale(
         reservationId,
-        paymentMethod: 'hotel_checkout',
-        sendNotifications: false,
+        paymentMethod: updatedReservation.paymentMethod,
       );
-    } catch (e) {
-      debugPrint(
-          '[HotelProvider] persistReservationSale on checkout error: $e');
     }
     notifyListeners();
+  }
+
+  Future<void> checkOutReservation(String reservationId) async {
+    await updateReservationStatus(reservationId, 'checked-out');
   }
 
   Future<void> addReservationCharge({
@@ -1788,6 +1881,9 @@ class HotelProvider extends ChangeNotifier {
   }) async {
     if (_businessId == null || _businessId!.isEmpty) {
       throw Exception('Business ID is required to add a reservation charge.');
+    }
+    if (!amount.isFinite || amount <= 0) {
+      throw ArgumentError('Charge amount must be greater than zero.');
     }
 
     final reservation = getReservationById(reservationId);
@@ -1813,7 +1909,27 @@ class HotelProvider extends ChangeNotifier {
 
     _folioCharges = [charge, ..._folioCharges]
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    await _syncGuestProfile(reservation);
+    final folioTotal = buildFolioCharges(reservation).fold<double>(
+      0,
+      (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0),
+    );
+    final paymentStatus = reservation.amountPaid <= 0
+        ? 'unpaid'
+        : reservation.amountPaid + 0.01 >= folioTotal
+            ? 'paid'
+            : 'partial';
+    final updatedReservation =
+        reservation.copyWith(paymentStatus: paymentStatus);
+    if (paymentStatus != reservation.paymentStatus) {
+      final index = _reservations.indexWhere((item) => item.id == reservationId);
+      if (repository != null && _businessId != null) {
+        await repository!.updateReservation(_businessId!, reservationId, {
+          'paymentStatus': paymentStatus,
+        });
+      }
+      if (index >= 0) _reservations[index] = updatedReservation;
+    }
+    await _syncGuestProfile(updatedReservation);
     notifyListeners();
   }
 
@@ -1849,17 +1965,14 @@ class HotelProvider extends ChangeNotifier {
           'The room already has another booking within the extension window.');
     }
 
-    final room = getRoomById(reservation.roomId);
     final updatedSpecialRequests =
         List<String>.from(reservation.specialRequests);
     if (extensionReason != null && extensionReason.trim().isNotEmpty) {
       updatedSpecialRequests.add('Stay extension: ${extensionReason.trim()}');
     }
 
-    final nights = newCheckOut.difference(reservation.checkIn).inDays;
     final updatedReservation = reservation.copyWith(
       checkOut: newCheckOut,
-      totalPrice: (room?.pricePerNight ?? 0.0) * (nights <= 0 ? 1 : nights),
       specialRequests: updatedSpecialRequests,
     );
 
@@ -2123,6 +2236,11 @@ class HotelProvider extends ChangeNotifier {
                   : double.tryParse(m['totalPrice']?.toString() ?? '0') ?? 0.0,
               specialRequests: List<String>.from(m['specialRequests'] ?? []),
               paymentStatus: m['paymentStatus']?.toString() ?? 'unpaid',
+              amountPaid: (m['amountPaid'] is num)
+                  ? (m['amountPaid'] as num).toDouble()
+                  : double.tryParse(m['amountPaid']?.toString() ?? '0') ?? 0,
+              paymentBreakdown:
+                  PaymentBreakdown.fromJson(m['paymentBreakdown']).toJson(),
               createdAt: _parseDynamicDate(m['createdAt']) ?? DateTime.now(),
             );
           }).toList();

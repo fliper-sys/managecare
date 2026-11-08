@@ -39,11 +39,13 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/theme/colors.dart';
+import '../../../../core/constants/routes.dart';
 import '../../../../core/utils/currency.dart';
 import '../../../../core/utils/worker_permissions.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/hotel_provider.dart';
 import '../dialogs/booking_dialogs.dart';
+import '../../../shared/payment_breakdown_dialog.dart';
 
 class CheckInHubScreen extends StatefulWidget {
   const CheckInHubScreen({super.key});
@@ -131,7 +133,7 @@ class _CheckInHubScreenState extends State<CheckInHubScreen>
           IconButton(
             tooltip: 'All booking history',
             icon: const Icon(Icons.history),
-            onPressed: () => _openHistory(context, provider),
+            onPressed: () => _openHistory(context),
           ),
         ],
         bottom: TabBar(
@@ -152,8 +154,8 @@ class _CheckInHubScreenState extends State<CheckInHubScreen>
           _AvailableTab(
             rooms: availableRooms,
             canManage: canManage,
-            onBook: (roomId) => _openNewBooking(context, provider,
-                preselectedRoomId: roomId),
+            onBook: (roomId) =>
+                _openNewBooking(context, provider, preselectedRoomId: roomId),
           ),
           _ReservedTab(
             reservations: reservedList,
@@ -171,7 +173,7 @@ class _CheckInHubScreenState extends State<CheckInHubScreen>
             onExtend: (r) => _openExtendStay(context, provider, r),
             onCheckOut: (r) => _confirmCheckOut(context, provider, r),
             onViewDetails: (r) => _openGuestDetails(context, provider, r),
-            onRoomHistory: (roomId) => _openRoomHistory(context, provider, roomId),
+            onRoomHistory: (roomId) => _openRoomHistory(context, roomId),
           ),
         ],
       ),
@@ -277,8 +279,8 @@ class _CheckInHubScreenState extends State<CheckInHubScreen>
               child: const Text('Keep')),
           TextButton(
               onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Cancel it',
-                  style: TextStyle(color: Colors.red))),
+              child:
+                  const Text('Cancel it', style: TextStyle(color: Colors.red))),
         ],
       ),
     );
@@ -307,24 +309,24 @@ class _CheckInHubScreenState extends State<CheckInHubScreen>
     HotelProvider provider,
     Reservation reservation,
   ) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Check-out guest?'),
-        content: Text(
-            'Mark ${reservation.guestName} as checked out from room ${provider.getRoomById(reservation.roomId)?.number ?? '—'}?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Not yet')),
-          FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Check-out')),
-        ],
-      ),
+    final payment = await showPaymentBreakdownDialog(
+      context,
+      title: 'Confirm payment and check-out',
+      amountDue: provider.getReservationBalance(reservation),
     );
-    if (confirm != true) return;
-    await provider.updateReservationStatus(reservation.id, 'checked-out');
+    if (payment == null || !mounted) return;
+    try {
+      if (payment.total > 0) {
+        await provider.recordReservationPayment(reservation.id, payment);
+      }
+      await provider.checkOutReservation(reservation.id);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not complete check-out: $error')),
+      );
+      return;
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('${reservation.guestName} checked out')),
@@ -345,126 +347,17 @@ class _CheckInHubScreenState extends State<CheckInHubScreen>
 
   void _openRoomHistory(
     BuildContext context,
-    HotelProvider provider,
     String roomId,
   ) {
-    final roomReservations =
-        provider.reservations.where((r) => r.roomId == roomId).toList()
-          ..sort((a, b) => b.checkIn.compareTo(a.checkIn));
-    _showHistorySheet(context, provider,
-        title: 'History — Room ${provider.getRoomById(roomId)?.number ?? '—'}',
-        reservations: roomReservations);
-  }
-
-  void _openHistory(BuildContext context, HotelProvider provider) {
-    final all = [...provider.reservations]
-      ..sort((a, b) => b.checkIn.compareTo(a.checkIn));
-    _showHistorySheet(context, provider,
-        title: 'All Booking History', reservations: all);
-  }
-
-  void _showHistorySheet(
-    BuildContext context,
-    HotelProvider provider, {
-    required String title,
-    required List<Reservation> reservations,
-  }) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (sheetContext) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.85,
-          minChildSize: 0.5,
-          maxChildSize: 0.95,
-          expand: false,
-          builder: (_, scrollController) {
-            return Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(title,
-                            style: const TextStyle(
-                                fontSize: 18, fontWeight: FontWeight.bold)),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.pop(sheetContext),
-                      ),
-                    ],
-                  ),
-                ),
-                if (reservations.isEmpty)
-                  const Expanded(
-                    child: Center(
-                      child: Text('No history yet.',
-                          style: TextStyle(color: Colors.grey)),
-                    ),
-                  )
-                else
-                  Expanded(
-                    child: ListView.separated(
-                      controller: scrollController,
-                      padding: const EdgeInsets.all(16),
-                      itemCount: reservations.length,
-                      separatorBuilder: (_, __) => const Divider(height: 20),
-                      itemBuilder: (_, index) {
-                        final r = reservations[index];
-                        final room = provider.getRoomById(r.roomId);
-                        return ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor:
-                                _statusColor(r.status).withOpacity(0.15),
-                            child: Icon(_statusIcon(r.status),
-                                color: _statusColor(r.status), size: 20),
-                          ),
-                          title: Text(r.guestName,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold)),
-                          subtitle: Text(
-                              'Room ${room?.number ?? '—'} • '
-                              '${DateFormat('d MMM y').format(r.checkIn)}'
-                              ' → '
-                              '${DateFormat('d MMM y').format(r.checkOut)}\n'
-                              'Status: ${r.status.replaceAll('-', ' ')} • '
-                              '${formatCurrency(r.totalPrice)}'),
-                          isThreeLine: true,
-                          trailing: IconButton(
-                            icon: const Icon(Icons.info_outline),
-                            onPressed: () {
-                              Navigator.pop(sheetContext);
-                              _openGuestDetails(context, provider, r);
-                            },
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-              ],
-            );
-          },
-        );
-      },
+    Navigator.pushNamed(
+      context,
+      Routes.hotelBookingHistory,
+      arguments: {'roomId': roomId},
     );
+  }
+
+  void _openHistory(BuildContext context) {
+    Navigator.pushNamed(context, Routes.hotelBookingHistory);
   }
 }
 
@@ -640,8 +533,7 @@ class _ReservedTab extends StatelessWidget {
                     const SizedBox(width: 4),
                     Text(
                       r.guestPhone.isEmpty ? 'No phone' : r.guestPhone,
-                      style:
-                          TextStyle(fontSize: 12, color: Colors.grey[700]),
+                      style: TextStyle(fontSize: 12, color: Colors.grey[700]),
                     ),
                     const SizedBox(width: 16),
                     Icon(Icons.calendar_today,
@@ -649,8 +541,7 @@ class _ReservedTab extends StatelessWidget {
                     const SizedBox(width: 4),
                     Text(
                       'ETA ${DateFormat('d MMM, h:mm a').format(eta)}',
-                      style:
-                          TextStyle(fontSize: 12, color: Colors.grey[700]),
+                      style: TextStyle(fontSize: 12, color: Colors.grey[700]),
                     ),
                   ],
                 ),
@@ -767,8 +658,7 @@ class _CheckedInTab extends StatelessWidget {
                           children: [
                             Text(r.guestName,
                                 style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 15)),
+                                    fontWeight: FontWeight.bold, fontSize: 15)),
                             const SizedBox(height: 2),
                             Text(
                               'Room ${room?.number ?? '—'} • '
@@ -789,8 +679,8 @@ class _CheckedInTab extends StatelessWidget {
                   const SizedBox(height: 10),
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
                       color: countdownColor.withOpacity(0.08),
                       borderRadius: BorderRadius.circular(8),
@@ -901,34 +791,4 @@ String _shortDuration(Duration d) {
   }
   if (d.inMinutes > 0) return '${d.inMinutes}m';
   return 'now';
-}
-
-Color _statusColor(String status) {
-  switch (status) {
-    case 'checked-in':
-      return Colors.blue;
-    case 'checked-out':
-      return Colors.grey;
-    case 'confirmed':
-      return Colors.orange;
-    case 'cancelled':
-      return Colors.red;
-    default:
-      return Colors.grey;
-  }
-}
-
-IconData _statusIcon(String status) {
-  switch (status) {
-    case 'checked-in':
-      return Icons.hotel;
-    case 'checked-out':
-      return Icons.logout;
-    case 'confirmed':
-      return Icons.event_available;
-    case 'cancelled':
-      return Icons.cancel;
-    default:
-      return Icons.help_outline;
-  }
 }

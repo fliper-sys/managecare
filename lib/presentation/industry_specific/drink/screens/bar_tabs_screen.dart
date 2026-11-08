@@ -10,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../../../core/constants/routes.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
+import '../../../../core/utils/worker_permissions.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/drink_provider.dart';
@@ -17,7 +18,6 @@ import '../../../../data/repositories/industry_specific/drink_repository_impl.da
 import '../../../../providers/receipt_settings_provider.dart';
 import '../../../../services/esc_pos_receipt_generator.dart';
 import '../../../../services/pdf_invoice_generator.dart';
-import '../../../../services/receipt_manager.dart';
 import '../../../../services/thermal_printer_manager.dart';
 import '../../../../services/thermal_printing_service.dart';
 import '../../../../services/web_download.dart' as web_download;
@@ -49,68 +49,65 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
     });
   }
 
-  Future<String?> _selectPaymentMethod() async {
-    return showModalBottomSheet<String>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: const Text('Cash'),
-              onTap: () => Navigator.pop(ctx, 'Cash'),
-            ),
-            ListTile(
-              title: const Text('Debit/Credit Card'),
-              onTap: () => Navigator.pop(ctx, 'Debit/Credit Card'),
-            ),
-            ListTile(
-              title: const Text('Digital Wallet'),
-              onTap: () => Navigator.pop(ctx, 'Digital Wallet'),
-            ),
-            ListTile(
-              title: const Text('Cancel'),
-              onTap: () => Navigator.pop(ctx),
-            ),
-          ],
-        ),
-      ),
+  Future<void> _handleConvertInvoice(BarInvoice invoice) async {
+    if (invoice.status != 'collected') return;
+    await Navigator.pushNamed(
+      context,
+      Routes.drinkOrderPayment,
+      arguments: {'invoiceId': invoice.id},
     );
   }
 
-  Future<void> _handleConvertInvoice(BarInvoice invoice) async {
-    final paymentMethod = await _selectPaymentMethod();
-    if (paymentMethod == null) return;
-
+  bool _hasBarPermission(String permission) {
     final auth = context.read<AuthProvider>();
-    final provider = context.read<DrinkProvider>();
+    final user = auth.currentUser;
+    return auth.isOwnerUser ||
+        (user != null &&
+            WorkerPermissions.hasEffectivePermission(
+              user.role,
+              user.permissions,
+              permission,
+            ));
+  }
 
+  Future<void> _handleConfirmOrder(BarInvoice invoice) async {
+    final user = context.read<AuthProvider>().currentUser;
     try {
-      final saleMap = await provider.convertInvoiceToSale(
-        invoice.id,
-        paymentMethod,
-        workerId: auth.currentUser?.id,
-        workerName: auth.currentUser?.fullName,
+      await context.read<DrinkProvider>().confirmInvoice(
+            invoice.id,
+            workerId: user?.id,
+            workerName: user?.fullName,
+          );
+      if (!mounted) return;
+      setState(() => _filter = 'confirmed');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${invoice.invoiceNumber} order confirmed.')),
       );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not confirm order: $error')),
+      );
+    }
+  }
 
+  Future<void> _handleConfirmCollection(BarInvoice invoice) async {
+    final user = context.read<AuthProvider>().currentUser;
+    try {
+      await context.read<DrinkProvider>().markInvoiceCollected(
+            invoice.id,
+            workerId: user?.id,
+            workerName: user?.fullName,
+          );
       if (!mounted) return;
-      await ReceiptManager.handlePostSale(
-        context,
-        saleMap,
-        invoiceGeneratedBeforeCheckout: true,
+      setState(() => _filter = 'collected');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${invoice.invoiceNumber} bottles collected.')),
       );
+    } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-              '${invoice.invoiceNumber} converted to sale successfully'),
-          backgroundColor: AppColors.success,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to convert invoice: $e')),
+        SnackBar(content: Text('Could not confirm collection: $error')),
       );
     }
   }
@@ -463,6 +460,9 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
     switch (_filter) {
       case 'converted':
         return invoices.where((invoice) => invoice.status == 'converted').toList();
+      case 'confirmed':
+      case 'collected':
+        return invoices.where((invoice) => invoice.status == _filter).toList();
       case 'cancelled':
         return invoices.where((invoice) => invoice.status == 'cancelled').toList();
       case 'all':
@@ -492,6 +492,10 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
         return AppColors.success;
       case 'cancelled':
         return Colors.red;
+      case 'confirmed':
+        return Colors.blue;
+      case 'collected':
+        return Colors.teal;
       case 'open':
       default:
         return Colors.orange;
@@ -499,6 +503,10 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
   }
 
   void _showInvoiceDetails(BarInvoice invoice) {
+    final canConfirmOrders = _hasBarPermission('confirm_bar_orders');
+    final canConfirmCollection =
+        _hasBarPermission('confirm_bar_collection');
+    final canConfirmPayments = _hasBarPermission('confirm_bar_payments');
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -543,6 +551,37 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
                   style: AppTextStyles.caption.copyWith(
                     color: AppColors.textSecondary,
                   ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Order activity',
+                  style: AppTextStyles.subtitle1.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                _WorkerAuditRow(
+                  label: 'Requested by',
+                  name: invoice.workerName,
+                  workerId: invoice.workerId,
+                ),
+                _WorkerAuditRow(
+                  label: 'Order confirmed by',
+                  name: invoice.confirmedByName,
+                  workerId: invoice.confirmedById,
+                  at: invoice.confirmedAt,
+                ),
+                _WorkerAuditRow(
+                  label: 'Drinks handed over by',
+                  name: invoice.collectedByName,
+                  workerId: invoice.collectedById,
+                  at: invoice.collectedAt,
+                ),
+                _WorkerAuditRow(
+                  label: 'Payment approved by',
+                  name: invoice.paidByName,
+                  workerId: invoice.paidById,
+                  at: invoice.paidAt,
                 ),
                 if (invoice.notes != null && invoice.notes!.trim().isNotEmpty) ...[
                   const SizedBox(height: 12),
@@ -633,12 +672,14 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
                   ),
                   const SizedBox(height: 8),
                   CustomButton(
-                    text: 'Convert to Sale',
-                    backgroundColor: Colors.green.shade600,
-                    onPressed: () async {
-                      Navigator.of(sheetContext).pop();
-                      await _handleConvertInvoice(invoice);
-                    },
+                    text: 'Confirm Order',
+                    backgroundColor: Colors.blue.shade700,
+                    onPressed: !canConfirmOrders
+                        ? null
+                        : () async {
+                            Navigator.of(sheetContext).pop();
+                            await _handleConfirmOrder(invoice);
+                          },
                   ),
                   const SizedBox(height: 8),
                   CustomButton(
@@ -650,6 +691,32 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
                       Navigator.of(sheetContext).pop();
                       await _handleCancelInvoice(invoice);
                     },
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                if (invoice.status == 'confirmed') ...[
+                  CustomButton(
+                    text: 'Confirm Bottles Collected',
+                    backgroundColor: Colors.teal.shade700,
+                    onPressed: !canConfirmCollection
+                        ? null
+                        : () async {
+                            Navigator.of(sheetContext).pop();
+                            await _handleConfirmCollection(invoice);
+                          },
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                if (invoice.status == 'collected') ...[
+                  CustomButton(
+                    text: 'Continue to Payment Confirmation',
+                    backgroundColor: Colors.green.shade600,
+                    onPressed: !canConfirmPayments
+                        ? null
+                        : () async {
+                            Navigator.of(sheetContext).pop();
+                            await _handleConvertInvoice(invoice);
+                          },
                   ),
                   const SizedBox(height: 8),
                 ],
@@ -707,6 +774,16 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
                       label: 'Open',
                       selected: _filter == 'open',
                       onTap: () => setState(() => _filter = 'open'),
+                    ),
+                    _FilterChip(
+                      label: 'Confirmed',
+                      selected: _filter == 'confirmed',
+                      onTap: () => setState(() => _filter = 'confirmed'),
+                    ),
+                    _FilterChip(
+                      label: 'Collected',
+                      selected: _filter == 'collected',
+                      onTap: () => setState(() => _filter = 'collected'),
                     ),
                     _FilterChip(
                       label: 'Converted',
@@ -953,6 +1030,39 @@ class _SummaryRow extends StatelessWidget {
         Expanded(child: Text(label, style: style)),
         Text(value, style: style),
       ],
+    );
+  }
+}
+
+class _WorkerAuditRow extends StatelessWidget {
+  final String label;
+  final String? name;
+  final String? workerId;
+  final DateTime? at;
+
+  const _WorkerAuditRow({
+    required this.label,
+    required this.name,
+    required this.workerId,
+    this.at,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final worker = (name ?? '').trim().isNotEmpty
+        ? name!.trim()
+        : (workerId ?? '').trim().isNotEmpty
+            ? workerId!.trim()
+            : 'Not recorded';
+    final timestamp = at == null
+        ? ''
+        : ' • ${at!.toLocal().toString().split('.').first}';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Text(
+        '$label: $worker$timestamp',
+        style: AppTextStyles.body2.copyWith(color: AppColors.textSecondary),
+      ),
     );
   }
 }

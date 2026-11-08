@@ -1718,7 +1718,7 @@ module.exports = function administrativeRoutes(
     const invoice = await prisma.$transaction(async (tx) => {
       const current = await tx.administrativeInvoice.findFirst({ where: { id: invoiceId, businessId } });
       if (!current) throw new HttpError(404, 'Invoice not found');
-      if (!['sent', 'paid'].includes(current.status)) throw new HttpError(409, 'Only sent invoices can receive payments');
+      if (!['draft', 'sent', 'paid'].includes(current.status)) throw new HttpError(409, 'This invoice cannot receive payments');
       const paidAmount = Number(current.paidAmount) + amount;
       if (paidAmount > Number(current.totalAmount) + 0.005) throw new HttpError(400, 'Payment exceeds the remaining invoice balance');
       const fullyPaid = paidAmount >= Number(current.totalAmount) - 0.005;
@@ -1727,6 +1727,9 @@ module.exports = function administrativeRoutes(
         data: {
           paidAmount,
           status: fullyPaid ? 'paid' : 'sent',
+          ...(current.status === 'draft' && !current.sentAt
+            ? { sentAt: new Date() }
+            : {}),
           paidAt: fullyPaid ? new Date() : null,
           updatedAt: new Date(),
         },

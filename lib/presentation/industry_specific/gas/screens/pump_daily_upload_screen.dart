@@ -17,6 +17,7 @@ import '../utils/pump_config_cache.dart';
 import '../utils/pump_daily_upload_validation.dart';
 import '../utils/pump_row_mapper.dart';
 import '../utils/pump_upload_offline_queue.dart';
+import 'petroleum_badge_context.dart';
 
 class PumpDailyUploadScreen extends StatefulWidget {
   const PumpDailyUploadScreen({
@@ -1058,6 +1059,11 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
 
       final uploadBody = {
         'pump_id': _selectedPumpId,
+        if (context.read<RetailProvider>().selectedPetroleumBadgeId != null)
+          'badge_id': context.read<RetailProvider>().selectedPetroleumBadgeId,
+        if (context.read<RetailProvider>().selectedPetroleumBadgeNumber != null)
+          'badge_number':
+              context.read<RetailProvider>().selectedPetroleumBadgeNumber,
         'pump_number': pump['pumpNumber'],
         'product_id': productId,
         'product_name': pump['productName'],
@@ -1246,6 +1252,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                 return ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
+                    const PetroleumBadgeContextBar(),
                     DropdownButtonFormField<String>(
                       value: selectedPumpId,
                       decoration: const InputDecoration(

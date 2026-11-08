@@ -9,6 +9,9 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../providers/hotel_provider.dart';
 import 'package:intl/intl.dart';
 import '../../../../services/receipt_manager.dart';
+import '../../../../data/models/payment_breakdown.dart';
+import '../../../shared/payment_breakdown_fields.dart';
+import '../../../shared/payment_breakdown_dialog.dart';
 
 class BookingsScreen extends StatefulWidget {
   const BookingsScreen({super.key});
@@ -18,21 +21,21 @@ class BookingsScreen extends StatefulWidget {
 }
 
 class _BookingsScreenState extends State<BookingsScreen> {
-
-    // Section header widget for details modal
-    Widget _buildSectionHeader(String title) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16.0),
-        child: Text(
-          title,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
+  // Section header widget for details modal
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16.0),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
+          color: Colors.black87,
         ),
-      );
-    }
+      ),
+    );
+  }
+
   String _filterStatus = 'all';
   String _searchQuery = '';
   String _roomSearchQuery = '';
@@ -136,7 +139,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
         .map((r) => r.roomId)
         .toSet();
     final availableRooms = allRooms
-        .where((room) => room.status == 'available' && !activeRoomIds.contains(room.id))
+        .where((room) =>
+            room.status == 'available' && !activeRoomIds.contains(room.id))
         .toList();
 
     return Scaffold(
@@ -154,13 +158,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
           IconButton(
             tooltip: 'Booking history',
             icon: const Icon(Icons.history),
-            onPressed: () => setState(() {
-              _filterStatus = 'all';
-              _searchController.clear();
-              _roomSearchController.clear();
-              _searchQuery = '';
-              _roomSearchQuery = '';
-            }),
+            onPressed: () =>
+                Navigator.pushNamed(context, Routes.hotelBookingHistory),
           ),
         ],
       ),
@@ -267,11 +266,13 @@ class _BookingsScreenState extends State<BookingsScreen> {
                       : ListView.separated(
                           padding: const EdgeInsets.all(16),
                           itemCount: reservations.length,
-                          separatorBuilder: (c, i) => const SizedBox(height: 12),
+                          separatorBuilder: (c, i) =>
+                              const SizedBox(height: 12),
                           itemBuilder: (context, index) {
                             final reservation = reservations[index];
-                            final room = provider.getRoomById(reservation.roomId) ??
-                                _fallbackRoom();
+                            final room =
+                                provider.getRoomById(reservation.roomId) ??
+                                    _fallbackRoom();
                             return _buildTicketCard(
                               context,
                               reservation,
@@ -292,7 +293,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
             backgroundColor: Colors.orange,
             elevation: 4,
             onPressed: canManageBookings
-                ? () => _showNewReservationDialog(context, provider, reservationOnly: true)
+                ? () => _showNewReservationDialog(context, provider,
+                    reservationOnly: true)
                 : null,
             label: const Text('Reserve Room',
                 style: TextStyle(fontWeight: FontWeight.bold)),
@@ -311,36 +313,6 @@ class _BookingsScreenState extends State<BookingsScreen> {
             icon: const Icon(Icons.add),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildFilterPill(String label, String value) {
-    final isSelected = _filterStatus == value;
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: InkWell(
-        onTap: () => setState(() => _filterStatus = value),
-        borderRadius: BorderRadius.circular(20),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: isSelected ? AppColors.primary : Colors.grey[100],
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: isSelected ? AppColors.primary : Colors.grey[300]!,
-            ),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: isSelected ? Colors.white : Colors.grey[700],
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -457,7 +429,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
           _buildInlineEmpty(emptyText)
         else
           ...reservations.map((reservation) {
-            final room = provider.getRoomById(reservation.roomId) ?? _fallbackRoom();
+            final room =
+                provider.getRoomById(reservation.roomId) ?? _fallbackRoom();
             return Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Stack(
@@ -570,7 +543,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
     return '${duration.inMinutes.clamp(0, 59)}m';
   }
 
-  void _showRoomHistory(BuildContext context, HotelProvider provider, Room room) {
+  void _showRoomHistory(
+      BuildContext context, HotelProvider provider, Room room) {
     final history = provider.getReservationsForRoom(room.id)
       ..sort((a, b) => b.checkIn.compareTo(a.checkIn));
     showModalBottomSheet(
@@ -597,7 +571,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
                   trailing: Text(reservation.status),
                   onTap: () {
                     Navigator.pop(sheetContext);
-                    _showReservationDetails(context, reservation, room, provider);
+                    _showReservationDetails(
+                        context, reservation, room, provider);
                   },
                 ),
               ),
@@ -812,524 +787,572 @@ class _BookingsScreenState extends State<BookingsScreen> {
             ),
 
             // Header
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text('Reservation Details',
-                                    style:
-                                        TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                                IconButton(
-                                  icon: const Icon(Icons.close_rounded),
-                                  onPressed: () => Navigator.pop(context),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Reservation Details',
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+
+            // Content
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Section 1: Guest
+                    _buildSectionHeader('Guest Information'),
+                    _buildDetailRow('Guest Name', reservation.guestName,
+                        Icons.person_outline),
+                    _buildDetailRow(
+                        'Email', reservation.guestEmail, Icons.email_outlined),
+                    _buildDetailRow(
+                        'Phone', reservation.guestPhone, Icons.phone_outlined),
+                    _buildDetailRow('Sex', _displayValue(reservation.guestSex),
+                        Icons.wc_outlined),
+                    _buildDetailRow(
+                        'Party Size',
+                        '${reservation.occupantCount} occupants (${reservation.adults} adults, ${reservation.children} kids)',
+                        Icons.group_outlined),
+                    _buildDetailRow(
+                        'Address',
+                        _displayValue(reservation.guestAddress),
+                        Icons.home_outlined),
+                    _buildDetailRow(
+                        'Booking Source',
+                        _displayValue(reservation.bookingSource),
+                        Icons.source_outlined),
+
+                    const SizedBox(height: 24),
+
+                    _buildSectionHeader('Identity & Emergency Contact'),
+                    _buildDetailRow(
+                        'Nationality',
+                        _displayValue(reservation.guestNationality),
+                        Icons.flag_outlined),
+                    _buildDetailRow(
+                        'ID Type',
+                        _displayValue(reservation.guestIdType),
+                        Icons.badge_outlined),
+                    _buildDetailRow(
+                        'ID Number',
+                        _displayValue(reservation.guestIdNumber),
+                        Icons.credit_card_outlined),
+                    _buildDetailRow(
+                        'Next of Kin',
+                        _displayValue(reservation.nextOfKinName),
+                        Icons.person_2_outlined),
+                    _buildDetailRow(
+                        'Next of Kin Phone',
+                        _displayValue(reservation.nextOfKinPhone),
+                        Icons.call_outlined),
+                    _buildDetailRow(
+                        'Relationship',
+                        _displayValue(reservation.nextOfKinRelationship),
+                        Icons.family_restroom_outlined),
+
+                    const SizedBox(height: 24),
+
+                    // Section 2: Stay
+                    _buildSectionHeader('Stay Details'),
+                    _buildDetailRow('Room', '${room.number} (${room.type})',
+                        Icons.meeting_room_outlined),
+                    _buildDetailRow(
+                        'Duration Type',
+                        reservation.stayDurationType
+                            .replaceAll('_', ' ')
+                            .toUpperCase(),
+                        Icons.timelapse_outlined),
+                    Row(
+                      children: [
+                        Expanded(
+                            child:
+                                _buildDateBox('Check-in', reservation.checkIn)),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Icon(Icons.arrow_forward, color: Colors.grey),
+                        ),
+                        Expanded(
+                            child: _buildDateBox(
+                                'Check-out', reservation.checkOut)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    if (reservation.specialRequests.isNotEmpty) ...[
+                      const Text('Special Requests:',
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 13)),
+                      const SizedBox(height: 4),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.yellow[50],
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.yellow[200]!),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: reservation.specialRequests
+                              .map((req) => Text('- $req',
+                                  style: TextStyle(color: Colors.orange[900])))
+                              .toList(),
+                        ),
+                      ),
+                    ],
+
+                    const SizedBox(height: 24),
+
+                    _buildSectionHeader('Vehicle Information'),
+                    _buildDetailRow(
+                        'Type',
+                        _displayValue(reservation.vehicleMake),
+                        Icons.directions_car_outlined),
+                    _buildDetailRow(
+                        'Model',
+                        _displayValue(reservation.vehicleModel),
+                        Icons.car_repair_outlined),
+                    _buildDetailRow(
+                        'Year',
+                        _displayValue(reservation.vehicleYear),
+                        Icons.date_range_outlined),
+                    _buildDetailRow(
+                        'Reg Number',
+                        _displayValue(reservation.vehiclePlateNumber),
+                        Icons.confirmation_number_outlined),
+
+                    const SizedBox(height: 24),
+
+                    // --- SALES/ORDERS SECTION ---
+                    _buildSectionHeader('Attached Revenue / Orders'),
+                    if (roomSales.isEmpty && guestSales.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Text('No attached revenue or orders.',
+                            style: TextStyle(color: Colors.grey[600])),
+                      ),
+                    if (roomSales.isNotEmpty)
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Room Sales:',
+                              style: TextStyle(fontWeight: FontWeight.bold)),
+                          ...roomSales.map((sale) => ListTile(
+                                leading: const Icon(
+                                    Icons.shopping_cart_outlined,
+                                    color: Colors.blue),
+                                title: Text(sale.description ?? 'Sale'),
+                                subtitle: Text(
+                                    'Amount: ${formatCurrency(sale.finalAmount)}'),
+                                trailing: Text(sale.status),
+                              )),
+                        ],
+                      ),
+                    if (guestSales.isNotEmpty)
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 8),
+                          const Text('Guest Sales:',
+                              style: TextStyle(fontWeight: FontWeight.bold)),
+                          ...guestSales.map((sale) => ListTile(
+                                leading: const Icon(Icons.person,
+                                    color: Colors.green),
+                                title: Text(sale.description ?? 'Sale'),
+                                subtitle: Text(
+                                    'Amount: ${formatCurrency(sale.finalAmount)}'),
+                                trailing: Text(sale.status),
+                              )),
+                        ],
+                      ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.add_shopping_cart),
+                          label: const Text('Attach Sale/Order'),
+                          onPressed: () {
+                            _showAttachOrderOptions(
+                              context,
+                              reservation: reservation,
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    // --- END SALES/ORDERS SECTION ---
+
+                    const SizedBox(height: 24),
+
+                    // Section 3: Financials
+                    _buildSectionHeader('Payment Info'),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[50],
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey[200]!),
+                      ),
+                      child: Column(
+                        children: [
+                          _buildPriceRow('Price per night',
+                              formatCurrency(room.pricePerNight)),
+                          if (room.halfDayPrice > 0)
+                            _buildPriceRow('Half day price',
+                                formatCurrency(room.halfDayPrice)),
+                          _buildPriceRow('Nights', 'x ${reservation.nights}'),
+                          _buildPriceRow(
+                            'Payment method',
+                            reservation.paymentMethod.toUpperCase(),
+                          ),
+                          if (reservation.mixedPaymentNote.isNotEmpty)
+                            _buildPriceRow(
+                              'Mixed payment',
+                              reservation.mixedPaymentNote,
+                            ),
+                          if (folioCharges.isNotEmpty) const Divider(),
+                          if (folioCharges.isNotEmpty)
+                            ...folioCharges.take(5).map(
+                                  (charge) => _buildPriceRow(
+                                    charge.description,
+                                    formatCurrency(charge.amount),
+                                  ),
                                 ),
-                              ],
-                            ),
+                          const Divider(),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Total',
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16)),
+                              Text(formatCurrency(folioTotal),
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 18,
+                                      color: AppColors.primary)),
+                            ],
                           ),
-                          const Divider(height: 1),
-
-                          // Content
-                          Expanded(
-                            child: SingleChildScrollView(
-                              padding: const EdgeInsets.all(20),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  // Section 1: Guest
-                                  _buildSectionHeader('Guest Information'),
-                                  _buildDetailRow('Guest Name', reservation.guestName,
-                                      Icons.person_outline),
-                                  _buildDetailRow(
-                                      'Email', reservation.guestEmail, Icons.email_outlined),
-                                  _buildDetailRow(
-                                      'Phone', reservation.guestPhone, Icons.phone_outlined),
-                                  _buildDetailRow(
-                                      'Sex',
-                                      _displayValue(reservation.guestSex),
-                                      Icons.wc_outlined),
-                                  _buildDetailRow(
-                                      'Party Size',
-                                      '${reservation.occupantCount} occupants (${reservation.adults} adults, ${reservation.children} kids)',
-                                      Icons.group_outlined),
-                                  _buildDetailRow(
-                                      'Address',
-                                      _displayValue(reservation.guestAddress),
-                                      Icons.home_outlined),
-                                  _buildDetailRow(
-                                      'Booking Source',
-                                      _displayValue(reservation.bookingSource),
-                                      Icons.source_outlined),
-
-                                  const SizedBox(height: 24),
-
-                                  _buildSectionHeader('Identity & Emergency Contact'),
-                                  _buildDetailRow(
-                                      'Nationality',
-                                      _displayValue(reservation.guestNationality),
-                                      Icons.flag_outlined),
-                                  _buildDetailRow(
-                                      'ID Type',
-                                      _displayValue(reservation.guestIdType),
-                                      Icons.badge_outlined),
-                                  _buildDetailRow(
-                                      'ID Number',
-                                      _displayValue(reservation.guestIdNumber),
-                                      Icons.credit_card_outlined),
-                                  _buildDetailRow(
-                                      'Next of Kin',
-                                      _displayValue(reservation.nextOfKinName),
-                                      Icons.person_2_outlined),
-                                  _buildDetailRow(
-                                      'Next of Kin Phone',
-                                      _displayValue(reservation.nextOfKinPhone),
-                                      Icons.call_outlined),
-                                  _buildDetailRow(
-                                      'Relationship',
-                                      _displayValue(reservation.nextOfKinRelationship),
-                                      Icons.family_restroom_outlined),
-
-                                  const SizedBox(height: 24),
-
-                                  // Section 2: Stay
-                                  _buildSectionHeader('Stay Details'),
-                                  _buildDetailRow('Room', '${room.number} (${room.type})',
-                                      Icons.meeting_room_outlined),
-                                  _buildDetailRow(
-                                      'Duration Type',
-                                      reservation.stayDurationType
-                                          .replaceAll('_', ' ')
-                                          .toUpperCase(),
-                                      Icons.timelapse_outlined),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                          child:
-                                              _buildDateBox('Check-in', reservation.checkIn)),
-                                      const Padding(
-                                        padding: EdgeInsets.symmetric(horizontal: 12),
-                                        child: Icon(Icons.arrow_forward, color: Colors.grey),
-                                      ),
-                                      Expanded(
-                                          child: _buildDateBox(
-                                              'Check-out', reservation.checkOut)),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  if (reservation.specialRequests.isNotEmpty) ...[
-                                    const Text('Special Requests:',
-                                        style: TextStyle(
-                                            fontWeight: FontWeight.bold, fontSize: 13)),
-                                    const SizedBox(height: 4),
-                                    Container(
-                                      width: double.infinity,
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: Colors.yellow[50],
-                                        borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(color: Colors.yellow[200]!),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: reservation.specialRequests
-                                            .map((req) => Text('- $req',
-                                                style: TextStyle(color: Colors.orange[900])))
-                                            .toList(),
-                                      ),
-                                    ),
-                                  ],
-
-                                  const SizedBox(height: 24),
-
-                                  _buildSectionHeader('Vehicle Information'),
-                                  _buildDetailRow(
-                                      'Type',
-                                      _displayValue(reservation.vehicleMake),
-                                      Icons.directions_car_outlined),
-                                  _buildDetailRow(
-                                      'Model',
-                                      _displayValue(reservation.vehicleModel),
-                                      Icons.car_repair_outlined),
-                                  _buildDetailRow(
-                                      'Year',
-                                      _displayValue(reservation.vehicleYear),
-                                      Icons.date_range_outlined),
-                                  _buildDetailRow(
-                                      'Reg Number',
-                                      _displayValue(reservation.vehiclePlateNumber),
-                                      Icons.confirmation_number_outlined),
-
-                                  const SizedBox(height: 24),
-
-                                  // --- SALES/ORDERS SECTION ---
-                                  _buildSectionHeader('Attached Revenue / Orders'),
-                                  if (roomSales.isEmpty && guestSales.isEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 8),
-                                      child: Text('No attached revenue or orders.', style: TextStyle(color: Colors.grey[600])),
-                                    ),
-                                  if (roomSales.isNotEmpty)
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('Room Sales:', style: TextStyle(fontWeight: FontWeight.bold)),
-                                        ...roomSales.map((sale) => ListTile(
-                                              leading: const Icon(Icons.shopping_cart_outlined, color: Colors.blue),
-                                              title: Text(sale.description ?? 'Sale'),
-                                              subtitle: Text('Amount: ${formatCurrency(sale.finalAmount)}'),
-                                              trailing: Text(sale.status),
-                                            )),
-                                      ],
-                                    ),
-                                  if (guestSales.isNotEmpty)
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const SizedBox(height: 8),
-                                        const Text('Guest Sales:', style: TextStyle(fontWeight: FontWeight.bold)),
-                                        ...guestSales.map((sale) => ListTile(
-                                              leading: const Icon(Icons.person, color: Colors.green),
-                                              title: Text(sale.description ?? 'Sale'),
-                                              subtitle: Text('Amount: ${formatCurrency(sale.finalAmount)}'),
-                                              trailing: Text(sale.status),
-                                            )),
-                                      ],
-                                    ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 8),
-                                    child: SizedBox(
-                                      width: double.infinity,
-                                      child: OutlinedButton.icon(
-                                        icon: const Icon(Icons.add_shopping_cart),
-                                        label: const Text('Attach Sale/Order'),
-                                        onPressed: () {
-                                          _showAttachOrderOptions(
-                                            context,
-                                            reservation: reservation,
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                  ),
-                                  // --- END SALES/ORDERS SECTION ---
-
-                                  const SizedBox(height: 24),
-
-                                  // Section 3: Financials
-                                  _buildSectionHeader('Payment Info'),
-                                  Container(
-                                    padding: const EdgeInsets.all(16),
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey[50],
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(color: Colors.grey[200]!),
-                                    ),
-                                    child: Column(
-                                      children: [
-                                        _buildPriceRow('Price per night',
-                                            formatCurrency(room.pricePerNight)),
-                                        if (room.halfDayPrice > 0)
-                                          _buildPriceRow('Half day price',
-                                              formatCurrency(room.halfDayPrice)),
-                                        _buildPriceRow('Nights', 'x ${reservation.nights}'),
-                                        _buildPriceRow(
-                                          'Payment method',
-                                          reservation.paymentMethod.toUpperCase(),
-                                        ),
-                                        if (reservation.mixedPaymentNote.isNotEmpty)
-                                          _buildPriceRow(
-                                            'Mixed payment',
-                                            reservation.mixedPaymentNote,
-                                          ),
-                                        if (folioCharges.isNotEmpty) const Divider(),
-                                        if (folioCharges.isNotEmpty)
-                                          ...folioCharges.take(5).map(
-                                                (charge) => _buildPriceRow(
-                                                  charge.description,
-                                                  formatCurrency(charge.amount),
-                                                ),
-                                              ),
-                                        const Divider(),
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            const Text('Total',
-                                                style: TextStyle(
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 16)),
-                                            Text(formatCurrency(folioTotal),
-                                                style: TextStyle(
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 18,
-                                                    color: AppColors.primary)),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Row(
-                                          children: [
-                                            Icon(
-                                                reservation.paymentStatus == 'paid'
-                                                    ? Icons.check_circle
-                                                    : Icons.pending,
-                                                size: 16,
-                                                color: reservation.paymentStatus == 'paid'
-                                                    ? Colors.green
-                                                    : Colors.orange),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                                'Status: ${reservation.paymentStatus.toUpperCase()}',
-                                                style: const TextStyle(
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.bold)),
-                                          ],
-                                        )
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 30),
-
-                                  // Action Buttons
-                                  if (reservation.status == 'confirmed' || reservation.status == 'checked-in')
-                                    SizedBox(
-                                      width: double.infinity,
-                                      height: 50,
-                                      child: OutlinedButton.icon(
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: AppColors.primary,
-                                          side: const BorderSide(color: AppColors.primary),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                          ),
-                                        ),
-                                        onPressed: () async {
-                                          await _showAddChargeDialog(
-                                            context,
-                                            provider: provider,
-                                            reservation: reservation,
-                                            room: room,
-                                          );
-                                          if (!context.mounted) return;
-                                          Navigator.pop(context);
-                                        },
-                                        icon: const Icon(Icons.receipt_long),
-                                        label: const Text(
-                                          'Add Extra Charge',
-                                          style: TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-
-                                  if (reservation.status == 'confirmed' || reservation.status == 'checked-in')
-                                    const SizedBox(height: 12),
-
-                                  SizedBox(
-                                    width: double.infinity,
-                                    height: 50,
-                                    child: OutlinedButton.icon(
-                                      onPressed: () {
-                                        Navigator.pop(context);
-                                        _showRoomHistory(context, provider, room);
-                                      },
-                                      icon: const Icon(Icons.history),
-                                      label: const Text(
-                                        'Room History',
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-
-                                  if (reservation.status == 'confirmed' || reservation.status == 'checked-in')
-                                    const SizedBox(height: 12),
-
-                                  if (reservation.status == 'confirmed' || reservation.status == 'checked-in')
-                                    SizedBox(
-                                      width: double.infinity,
-                                      height: 50,
-                                      child: OutlinedButton.icon(
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: Colors.deepPurple,
-                                          side: const BorderSide(color: Colors.deepPurple),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                          ),
-                                        ),
-                                        onPressed: () async {
-                                          await _showExtendStayDialog(
-                                            context,
-                                            provider: provider,
-                                            reservation: reservation,
-                                            room: room,
-                                          );
-                                          if (!context.mounted) return;
-                                          Navigator.pop(context);
-                                        },
-                                        icon: const Icon(Icons.hotel),
-                                        label: const Text(
-                                          'Extend Stay',
-                                          style: TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-
-                                  if (reservation.status == 'confirmed' || reservation.status == 'checked-in')
-                                    const SizedBox(height: 12),
-
-                                  if (reservation.status == 'confirmed')
-                                    SizedBox(
-                                      width: double.infinity,
-                                      height: 50,
-                                      child: ElevatedButton.icon(
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.green,
-                                          shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(12)),
-                                        ),
-                                        onPressed: () async {
-                                          await provider.updateReservationStatus(
-                                              reservation.id, 'checked-in');
-                                          if (!context.mounted) return;
-                                          Navigator.pop(context);
-                                        },
-                                        icon: const Icon(Icons.login, color: Colors.white),
-                                        label: const Text('Check-in Guest',
-                                            style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.bold)),
-                                      ),
-                                    ),
-
-                                  if (reservation.status == 'checked-in')
-                                    SizedBox(
-                                      width: double.infinity,
-                                      height: 50,
-                                      child: ElevatedButton.icon(
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.purple,
-                                          shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(12)),
-                                        ),
-                                        onPressed: () async {
-                                          await provider.updateReservationStatus(
-                                              reservation.id, 'checked-out');
-
-                                          final updatedReservation =
-                                              provider.reservations.firstWhere(
-                                            (item) => item.id == reservation.id,
-                                            orElse: () =>
-                                                reservation.copyWith(status: 'checked-out'),
-                                          );
-                                          final saleMap =
-                                              provider.buildReservationSalePayload(
-                                            updatedReservation,
-                                            room: room,
-                                            paymentMethod:
-                                                updatedReservation.paymentStatus == 'paid'
-                                                    ? 'hotel_checkout'
-                                                    : 'pay_at_checkout',
-                                          );
-
-                                            await ReceiptManager.handlePostSale(
-                                              context,
-                                              saleMap,
-                                              invoiceGeneratedBeforeCheckout: true,
-                                            );
-                                          if (!context.mounted) return;
-                                          Navigator.pop(context);
-                                        },
-                                        icon: const Icon(Icons.logout, color: Colors.white),
-                                        label: const Text('Check-out & Invoice',
-                                            style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.bold)),
-                                      ),
-                                    ),
-
-                                  if (reservation.status != 'cancelled' && reservation.status != 'checked-out')
-                                    SizedBox(
-                                      width: double.infinity,
-                                      height: 50,
-                                      child: OutlinedButton.icon(
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: Colors.red,
-                                          side: const BorderSide(color: Colors.red),
-                                          shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(12)),
-                                        ),
-                                        onPressed: () async {
-                                          await provider.cancelReservation(reservation.id);
-                                          if (!context.mounted) return;
-                                          Navigator.pop(context);
-                                        },
-                                        icon: const Icon(Icons.cancel, color: Colors.red),
-                                        label: const Text('Cancel Booking',
-                                            style: TextStyle(
-                                                color: Colors.red,
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.bold)),
-                                      ),
-                                    ),
-
-                                  if (reservation.paymentStatus != 'paid')
-                                    SizedBox(
-                                      width: double.infinity,
-                                      height: 50,
-                                      child: ElevatedButton.icon(
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.blueAccent,
-                                          shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(12)),
-                                        ),
-                                        onPressed: () async {
-                                          await provider.updatePaymentStatus(
-                                              reservation.id, 'paid');
-                                          final updatedReservation =
-                                              provider.reservations.firstWhere(
-                                            (item) => item.id == reservation.id,
-                                            orElse: () =>
-                                                reservation.copyWith(paymentStatus: 'paid'),
-                                          );
-                                          final saleMap =
-                                              provider.buildReservationSalePayload(
-                                            updatedReservation,
-                                            room: room,
-                                            paymentMethod: 'hotel_billing',
-                                          );
-                                            if (!context.mounted) return;
-                                            await ReceiptManager.handlePostSale(
-                                              context,
-                                              saleMap,
-                                              invoiceGeneratedBeforeCheckout: true,
-                                            );
-                                          if (!context.mounted) return;
-                                          Navigator.pop(context);
-                                        },
-                                        icon: const Icon(Icons.payment, color: Colors.white),
-                                        label: const Text('Mark as Paid',
-                                            style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.bold)),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Icon(
+                                  reservation.paymentStatus == 'paid'
+                                      ? Icons.check_circle
+                                      : Icons.pending,
+                                  size: 16,
+                                  color: reservation.paymentStatus == 'paid'
+                                      ? Colors.green
+                                      : Colors.orange),
+                              const SizedBox(width: 4),
+                              Text(
+                                  'Status: ${reservation.paymentStatus.toUpperCase()}',
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold)),
+                            ],
+                          )
                         ],
                       ),
                     ),
-                  );
+                    const SizedBox(height: 30),
+
+                    // Action Buttons
+                    if (reservation.status == 'confirmed' ||
+                        reservation.status == 'checked-in')
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.primary,
+                            side: const BorderSide(color: AppColors.primary),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          onPressed: () async {
+                            await _showAddChargeDialog(
+                              context,
+                              provider: provider,
+                              reservation: reservation,
+                              room: room,
+                            );
+                            if (!context.mounted) return;
+                            Navigator.pop(context);
+                          },
+                          icon: const Icon(Icons.receipt_long),
+                          label: const Text(
+                            'Add Extra Charge',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                    if (reservation.status == 'confirmed' ||
+                        reservation.status == 'checked-in')
+                      const SizedBox(height: 12),
+
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _showRoomHistory(context, provider, room);
+                        },
+                        icon: const Icon(Icons.history),
+                        label: const Text(
+                          'Room History',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    if (reservation.status == 'confirmed' ||
+                        reservation.status == 'checked-in')
+                      const SizedBox(height: 12),
+
+                    if (reservation.status == 'confirmed' ||
+                        reservation.status == 'checked-in')
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.deepPurple,
+                            side: const BorderSide(color: Colors.deepPurple),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          onPressed: () async {
+                            await _showExtendStayDialog(
+                              context,
+                              provider: provider,
+                              reservation: reservation,
+                              room: room,
+                            );
+                            if (!context.mounted) return;
+                            Navigator.pop(context);
+                          },
+                          icon: const Icon(Icons.hotel),
+                          label: const Text(
+                            'Extend Stay',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                    if (reservation.status == 'confirmed' ||
+                        reservation.status == 'checked-in')
+                      const SizedBox(height: 12),
+
+                    if (reservation.status == 'confirmed')
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: () async {
+                            await provider.updateReservationStatus(
+                                reservation.id, 'checked-in');
+                            if (!context.mounted) return;
+                            Navigator.pop(context);
+                          },
+                          icon: const Icon(Icons.login, color: Colors.white),
+                          label: const Text('Check-in Guest',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+
+                    if (reservation.status == 'checked-in')
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.purple,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: () async {
+                            final payment = await showPaymentBreakdownDialog(
+                              context,
+                              title: 'Confirm checkout payment',
+                              amountDue:
+                                  provider.getReservationBalance(reservation),
+                            );
+                            if (payment == null || !context.mounted) {
+                              return;
+                            }
+                            try {
+                              if (payment.total > 0) {
+                                await provider.recordReservationPayment(
+                                  reservation.id,
+                                  payment,
+                                );
+                              }
+                              await provider
+                                  .checkOutReservation(reservation.id);
+                              final updatedReservation =
+                                  provider.getReservationById(reservation.id)!;
+                              final saleMap =
+                                  provider.buildReservationSalePayload(
+                                updatedReservation,
+                                room: room,
+                              );
+                              if (!context.mounted) return;
+                              await ReceiptManager.handlePostSale(
+                                context,
+                                saleMap,
+                                invoiceGeneratedBeforeCheckout: true,
+                              );
+                            } catch (error) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Could not check out guest: $error',
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+                            if (!context.mounted) return;
+                            Navigator.pop(context);
+                          },
+                          icon: const Icon(Icons.logout, color: Colors.white),
+                          label: const Text('Check-out & Invoice',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+
+                    if (reservation.status != 'cancelled' &&
+                        reservation.status != 'checked-out')
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Colors.red),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: () async {
+                            await provider.cancelReservation(reservation.id);
+                            if (!context.mounted) return;
+                            Navigator.pop(context);
+                          },
+                          icon: const Icon(Icons.cancel, color: Colors.red),
+                          label: const Text('Cancel Booking',
+                              style: TextStyle(
+                                  color: Colors.red,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+
+                    if (reservation.paymentStatus != 'paid')
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blueAccent,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: () async {
+                            final payment = await showPaymentBreakdownDialog(
+                              context,
+                              title: 'Record reservation payment',
+                              amountDue:
+                                  provider.getReservationBalance(reservation),
+                            );
+                            if (payment == null || !context.mounted) {
+                              return;
+                            }
+                            try {
+                              await provider.recordReservationPayment(
+                                reservation.id,
+                                payment,
+                              );
+                              final updatedReservation =
+                                  provider.getReservationById(reservation.id)!;
+                              final saleMap =
+                                  provider.buildReservationSalePayload(
+                                updatedReservation,
+                                room: room,
+                                paymentMethod: updatedReservation.paymentMethod,
+                              );
+                              if (!context.mounted) return;
+                              await ReceiptManager.handlePostSale(
+                                context,
+                                saleMap,
+                                invoiceGeneratedBeforeCheckout: true,
+                              );
+                              if (!context.mounted) return;
+                              Navigator.pop(context);
+                            } catch (error) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Could not record payment: $error',
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.payment, color: Colors.white),
+                          label: const Text('Record Payment',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildDetailRow(String label, String value, IconData icon) {
@@ -1557,9 +1580,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
 
     Navigator.of(context).pop();
 
-    final route = selection == 'bar'
-        ? Routes.hotelBar
-        : Routes.hotelRestaurant;
+    final route = selection == 'bar' ? Routes.hotelBar : Routes.hotelRestaurant;
 
     await Navigator.of(context).pushNamed(
       route,
@@ -1578,7 +1599,6 @@ class _BookingsScreenState extends State<BookingsScreen> {
     final reasonController = TextEditingController();
     final daysController = TextEditingController(text: '1');
     String extensionType = 'half_day';
-    String paymentMethod = 'cash';
 
     final confirmed = await showDialog<bool>(
           context: context,
@@ -1616,21 +1636,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
                     ),
                   ],
                   const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: paymentMethod,
-                    decoration:
-                        const InputDecoration(labelText: 'Payment Method'),
-                    items: const [
-                      DropdownMenuItem(value: 'cash', child: Text('Cash')),
-                      DropdownMenuItem(value: 'card', child: Text('Card')),
-                      DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
-                      DropdownMenuItem(value: 'mixed', child: Text('Mixed')),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) {
-                        setDialogState(() => paymentMethod = value);
-                      }
-                    },
+                  const Text(
+                    'The extension charge will be added to the guest folio and paid at check-out.',
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -1639,7 +1646,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                     maxLines: 4,
                     decoration: const InputDecoration(
                       labelText: 'Extension note',
-                      hintText: 'Optional reason, mixed payment, or note',
+                      hintText: 'Optional extension note',
                     ),
                   ),
                 ],
@@ -1673,9 +1680,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
     await provider.extendReservationStay(
       reservationId: reservation.id,
       newCheckOut: nextDate,
-      extensionReason:
-          '${extensionType.replaceAll('_', ' ')} extension paid by $paymentMethod'
-          '${reasonController.text.trim().isEmpty ? '' : ': ${reasonController.text.trim()}'}',
+      extensionReason: reasonController.text.trim(),
     );
     await provider.addReservationCharge(
       reservationId: reservation.id,
@@ -1686,8 +1691,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
       category: 'stay_extension',
       source: 'front_desk',
       metadata: {
-        'paymentMethod': paymentMethod,
         'extensionType': extensionType,
+        'dueAtCheckout': true,
       },
     );
 
@@ -1753,7 +1758,10 @@ class _BookingsScreenState extends State<BookingsScreen> {
     final childrenCtrl = TextEditingController(text: '0');
     final occupantsCtrl = TextEditingController(text: '1');
     final requestsCtrl = TextEditingController();
-    final mixedPaymentCtrl = TextEditingController();
+    final bookingPaymentCtrl = TextEditingController();
+    final cashPaymentCtrl = TextEditingController();
+    final cardPaymentCtrl = TextEditingController();
+    final transferPaymentCtrl = TextEditingController();
     // Vehicle info controllers
     final vehiclePlateCtrl = TextEditingController();
     final vehicleMakeCtrl = TextEditingController();
@@ -1790,7 +1798,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
           child: Container(
             decoration: BoxDecoration(
               color: Theme.of(context).cardColor,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(20)),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             child: SingleChildScrollView(
@@ -1822,9 +1831,12 @@ class _BookingsScreenState extends State<BookingsScreen> {
                             value: selectedGuestKey,
                             items: registeredGuests.map((guest) {
                               final key = provider.resolveGuestIdentityKey(
-                                guestName: (guest['guestName'] ?? '').toString(),
-                                guestEmail: (guest['guestEmail'] ?? '').toString(),
-                                guestPhone: (guest['guestPhone'] ?? '').toString(),
+                                guestName:
+                                    (guest['guestName'] ?? '').toString(),
+                                guestEmail:
+                                    (guest['guestEmail'] ?? '').toString(),
+                                guestPhone:
+                                    (guest['guestPhone'] ?? '').toString(),
                               );
                               final tier = (guest['guestTier'] ?? 'registered')
                                   .toString()
@@ -1836,14 +1848,22 @@ class _BookingsScreenState extends State<BookingsScreen> {
                               );
                             }).toList(),
                             onChanged: (value) {
-                              final guest = registeredGuests.cast<Map<String, dynamic>?>().firstWhere(
+                              final guest = registeredGuests
+                                  .cast<Map<String, dynamic>?>()
+                                  .firstWhere(
                                     (item) =>
                                         item != null &&
                                         provider.resolveGuestIdentityKey(
-                                          guestName: (item['guestName'] ?? '').toString(),
-                                          guestEmail: (item['guestEmail'] ?? '').toString(),
-                                          guestPhone: (item['guestPhone'] ?? '').toString(),
-                                        ) ==
+                                              guestName:
+                                                  (item['guestName'] ?? '')
+                                                      .toString(),
+                                              guestEmail:
+                                                  (item['guestEmail'] ?? '')
+                                                      .toString(),
+                                              guestPhone:
+                                                  (item['guestPhone'] ?? '')
+                                                      .toString(),
+                                            ) ==
                                             value,
                                     orElse: () => null,
                                   );
@@ -1858,7 +1878,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                 guestAddressCtrl.text =
                                     (guest?['guestAddress'] ?? '').toString();
                                 guestNationalityCtrl.text =
-                                    (guest?['guestNationality'] ?? '').toString();
+                                    (guest?['guestNationality'] ?? '')
+                                        .toString();
                                 guestIdTypeCtrl.text =
                                     (guest?['guestIdType'] ?? '').toString();
                                 guestIdNumberCtrl.text =
@@ -1868,7 +1889,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                 nextOfKinPhoneCtrl.text =
                                     (guest?['nextOfKinPhone'] ?? '').toString();
                                 nextOfKinRelationshipCtrl.text =
-                                    (guest?['nextOfKinRelationship'] ?? '').toString();
+                                    (guest?['nextOfKinRelationship'] ?? '')
+                                        .toString();
                               });
                             },
                             decoration: const InputDecoration(
@@ -1896,9 +1918,12 @@ class _BookingsScreenState extends State<BookingsScreen> {
                           value: guestSex,
                           decoration: const InputDecoration(labelText: 'Sex'),
                           items: const [
-                            DropdownMenuItem(value: 'male', child: Text('Male')),
-                            DropdownMenuItem(value: 'female', child: Text('Female')),
-                            DropdownMenuItem(value: 'other', child: Text('Other')),
+                            DropdownMenuItem(
+                                value: 'male', child: Text('Male')),
+                            DropdownMenuItem(
+                                value: 'female', child: Text('Female')),
+                            DropdownMenuItem(
+                                value: 'other', child: Text('Other')),
                           ],
                           onChanged: (value) {
                             if (value != null) {
@@ -1912,8 +1937,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
                         const SizedBox(height: 12),
                         TextFormField(
                           controller: guestEmailCtrl,
-                          decoration:
-                              const InputDecoration(labelText: 'Email (optional)'),
+                          decoration: const InputDecoration(
+                              labelText: 'Email (optional)'),
                           keyboardType: TextInputType.emailAddress,
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
@@ -1929,19 +1954,21 @@ class _BookingsScreenState extends State<BookingsScreen> {
                         const SizedBox(height: 12),
                         TextFormField(
                           controller: guestPhoneCtrl,
-                          decoration:
-                              InputDecoration(labelText: reservationOnly ? 'Phone Number' : 'Phone Number (optional)'),
+                          decoration: InputDecoration(
+                              labelText: reservationOnly
+                                  ? 'Phone Number'
+                                  : 'Phone Number (optional)'),
                           keyboardType: TextInputType.phone,
-                          validator: (value) =>
-                              reservationOnly && (value == null || value.trim().isEmpty)
-                                  ? 'Phone is required'
-                                  : null,
+                          validator: (value) => reservationOnly &&
+                                  (value == null || value.trim().isEmpty)
+                              ? 'Phone is required'
+                              : null,
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
                           controller: guestAddressCtrl,
-                          decoration:
-                              const InputDecoration(labelText: 'Guest Address (optional)'),
+                          decoration: const InputDecoration(
+                              labelText: 'Guest Address (optional)'),
                         ),
                         const SizedBox(height: 20),
                         const Text(
@@ -2211,14 +2238,17 @@ class _BookingsScreenState extends State<BookingsScreen> {
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
                           value: paymentMethod,
-                          decoration:
-                              const InputDecoration(labelText: 'Payment Method'),
+                          decoration: const InputDecoration(
+                              labelText: 'Payment Method'),
                           items: const [
-                            DropdownMenuItem(value: 'cash', child: Text('Cash')),
-                            DropdownMenuItem(value: 'card', child: Text('Card')),
+                            DropdownMenuItem(
+                                value: 'cash', child: Text('Cash')),
+                            DropdownMenuItem(
+                                value: 'card', child: Text('Card')),
                             DropdownMenuItem(
                                 value: 'transfer', child: Text('Transfer')),
-                            DropdownMenuItem(value: 'mixed', child: Text('Mixed')),
+                            DropdownMenuItem(
+                                value: 'mixed', child: Text('Mixed')),
                           ],
                           onChanged: (value) {
                             if (value != null) {
@@ -2226,20 +2256,41 @@ class _BookingsScreenState extends State<BookingsScreen> {
                             }
                           },
                         ),
+                        const SizedBox(height: 12),
                         if (paymentMethod == 'mixed') ...[
-                          const SizedBox(height: 12),
-                          TextFormField(
-                            controller: mixedPaymentCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Mixed Payment Breakdown',
-                              hintText: 'Example: cash 20000, transfer 50000',
-                            ),
-                            validator: (value) =>
-                                paymentMethod == 'mixed' &&
-                                        (value == null || value.trim().isEmpty)
-                                    ? 'Specify mixed payment'
-                                    : null,
+                          PaymentBreakdownFields(
+                            cashController: cashPaymentCtrl,
+                            cardController: cardPaymentCtrl,
+                            transferController: transferPaymentCtrl,
+                            onChanged: (_) => setState(() {}),
                           ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Optional deposit paid now. Leave all fields at zero to pay later.',
+                          ),
+                        ] else ...[
+                          TextFormField(
+                            controller: bookingPaymentCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            decoration: const InputDecoration(
+                              labelText: 'Amount paid now (optional)',
+                              prefixText: '₦ ',
+                            ),
+                            validator: (value) {
+                              final amount =
+                                  double.tryParse(value?.trim() ?? '');
+                              if (value != null &&
+                                  value.trim().isNotEmpty &&
+                                  (amount == null || amount < 0)) {
+                                return 'Enter a valid payment amount';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 8),
+                          const Text('Leave blank to pay at check-out.'),
                         ],
                         const SizedBox(height: 12),
                         TextFormField(
@@ -2269,6 +2320,40 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                     setState(
                                         () => _isCreatingReservation = true);
                                     try {
+                                      final payment = paymentMethod == 'mixed'
+                                          ? PaymentBreakdown(
+                                              cash: double.tryParse(
+                                                      cashPaymentCtrl.text) ??
+                                                  0,
+                                              card: double.tryParse(
+                                                      cardPaymentCtrl.text) ??
+                                                  0,
+                                              transfer: double.tryParse(
+                                                      transferPaymentCtrl
+                                                          .text) ??
+                                                  0,
+                                            )
+                                          : PaymentBreakdown(
+                                              cash: paymentMethod == 'cash'
+                                                  ? double.tryParse(
+                                                          bookingPaymentCtrl
+                                                              .text) ??
+                                                      0
+                                                  : 0,
+                                              card: paymentMethod == 'card'
+                                                  ? double.tryParse(
+                                                          bookingPaymentCtrl
+                                                              .text) ??
+                                                      0
+                                                  : 0,
+                                              transfer:
+                                                  paymentMethod == 'transfer'
+                                                      ? double.tryParse(
+                                                              bookingPaymentCtrl
+                                                                  .text) ??
+                                                          0
+                                                      : 0,
+                                            );
                                       await provider.createReservation(
                                         roomId: selectedRoomId!,
                                         guestName: guestNameCtrl.text.trim(),
@@ -2306,12 +2391,11 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                         vehicleColor:
                                             vehicleColorCtrl.text.trim(),
                                         paymentMethod: paymentMethod,
-                                        mixedPaymentNote:
-                                            mixedPaymentCtrl.text.trim(),
+                                        amountPaid: payment.total,
+                                        paymentBreakdown: payment,
                                         stayDurationType: stayDurationType,
-                                        estimatedArrivalAt: reservationOnly
-                                            ? checkIn
-                                            : null,
+                                        estimatedArrivalAt:
+                                            reservationOnly ? checkIn : null,
                                         status: reservationOnly
                                             ? 'confirmed'
                                             : 'checked-in',
@@ -2350,9 +2434,10 @@ class _BookingsScreenState extends State<BookingsScreen> {
                             child: _isCreatingReservation
                                 ? const CircularProgressIndicator(
                                     color: Colors.white)
-                                : Text(reservationOnly
-                                    ? 'Reserve Room'
-                                    : 'Check In Guest',
+                                : Text(
+                                    reservationOnly
+                                        ? 'Reserve Room'
+                                        : 'Check In Guest',
                                     style:
                                         TextStyle(fontWeight: FontWeight.bold)),
                           ),

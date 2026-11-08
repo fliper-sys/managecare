@@ -51,7 +51,9 @@ Future<void> _showRevenueReceiptDialog(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
                   pw.Text(
-                    businessName?.isNotEmpty == true ? businessName! : 'ManageCare',
+                    businessName?.isNotEmpty == true
+                        ? businessName!
+                        : 'ManageCare',
                     style: pw.TextStyle(
                         fontSize: 22, fontWeight: pw.FontWeight.bold),
                   ),
@@ -83,7 +85,11 @@ Future<void> _showRevenueReceiptDialog(
           pw.Table.fromTextArray(
             headers: const ['Description', 'Payment method', 'Amount'],
             data: [
-              [description, _paymentMethodLabel(paymentMethod), _currency(amount)],
+              [
+                description,
+                _paymentMethodLabel(paymentMethod),
+                _currency(amount)
+              ],
             ],
           ),
           pw.SizedBox(height: 24),
@@ -91,8 +97,7 @@ Future<void> _showRevenueReceiptDialog(
             alignment: pw.Alignment.centerRight,
             child: pw.Text(
               'Total paid: ${_currency(amount)}',
-              style:
-                  pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
+              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
             ),
           ),
         ],
@@ -642,6 +647,11 @@ class _AdministrativeDocumentsScreenState
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          _WorkflowHeader(
+            icon: Icons.folder_open_outlined,
+            title: 'Client documents',
+            description: 'Keep files, folders, and review history together.',
+          ),
           if (widget.canManageDocuments)
             FilledButton.icon(
               onPressed: _uploadDocument,
@@ -1168,6 +1178,11 @@ class _AdministrativeTaskCompletionScreenState
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: [
+          _WorkflowHeader(
+            icon: Icons.task_alt_outlined,
+            title: 'Complete assigned work',
+            description: 'Add a note or attach the finished work for review.',
+          ),
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading:
@@ -1428,6 +1443,11 @@ class _AdministrativeDocumentReviewScreenState
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: [
+          _WorkflowHeader(
+            icon: Icons.fact_check_outlined,
+            title: 'Review submitted work',
+            description: 'Check the latest document version before responding.',
+          ),
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading:
@@ -1680,6 +1700,12 @@ class _AdministrativeObligationsScreenState
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              _WorkflowHeader(
+                icon: Icons.event_repeat_outlined,
+                title: 'Stay ahead of deadlines',
+                description:
+                    'Track recurring filings, renewals, and client duties.',
+              ),
               Wrap(
                 spacing: 8,
                 children: ['All', '24 hours', '3 days', 'Urgent', 'Completed']
@@ -2086,6 +2112,11 @@ class _AdministrativeSecurityScreenState
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(title: const Text('Client Access & Security')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
+        _WorkflowHeader(
+          icon: Icons.shield_outlined,
+          title: 'Protect client access',
+          description: 'Manage passcodes and portal credentials securely.',
+        ),
         ListTile(
           leading: CircleAvatar(child: Text(widget.clientName.substring(0, 1))),
           title: Text(widget.clientName),
@@ -2560,8 +2591,7 @@ class _ClientRecordsTabState extends State<_ClientRecordsTab> {
                           value: 'transfer', child: Text('Transfer')),
                       DropdownMenuItem(value: 'mixed', child: Text('Mixed')),
                     ],
-                    onChanged: (value) =>
-                        paymentMethod = value ?? 'cash',
+                    onChanged: (value) => paymentMethod = value ?? 'cash',
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
@@ -2846,6 +2876,67 @@ class _StatusPill extends StatelessWidget {
   }
 }
 
+class _WorkflowHeader extends StatelessWidget {
+  const _WorkflowHeader({
+    required this.icon,
+    required this.title,
+    required this.description,
+  });
+
+  final IconData icon;
+  final String title;
+  final String description;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 18),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: theme.colorScheme.outline.withOpacity(.7)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withOpacity(.1),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: theme.colorScheme.primary),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  description,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface.withOpacity(.68),
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SectionTitle extends StatelessWidget {
   const _SectionTitle(this.text);
   final String text;
@@ -2973,6 +3064,11 @@ class _AdministrativeEditClientScreenState
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              _WorkflowHeader(
+                icon: Icons.person_outline_rounded,
+                title: 'Client details',
+                description: 'Keep contact and company information up to date.',
+              ),
               TextFormField(
                 controller: _name,
                 autofocus: true,
@@ -3139,6 +3235,11 @@ class _AdministrativeCreateClientScreenState
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              _WorkflowHeader(
+                icon: Icons.person_outline_rounded,
+                title: 'Client details',
+                description: 'Keep contact and company information up to date.',
+              ),
               TextFormField(
                 controller: _name,
                 autofocus: true,
@@ -3380,6 +3481,12 @@ class _AdministrativeCalendarScreenState
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  _WorkflowHeader(
+                    icon: Icons.calendar_month_outlined,
+                    title: 'Plan the work ahead',
+                    description:
+                        'See client events, tasks, and recurring due dates.',
+                  ),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -3606,8 +3713,16 @@ class _AdministrativeStaffingScreenState
           final staff = snapshot.data ?? const [];
           return ListView.builder(
             padding: const EdgeInsets.all(16),
-            itemCount: staff.isEmpty ? 1 : staff.length,
+            itemCount: staff.isEmpty ? 2 : staff.length + 1,
             itemBuilder: (context, index) {
+              if (index == 0) {
+                return _WorkflowHeader(
+                  icon: Icons.groups_2_outlined,
+                  title: 'Your team',
+                  description:
+                      '${staff.length} team members with client and task access.',
+                );
+              }
               if (staff.isEmpty) {
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 48),
@@ -3621,8 +3736,10 @@ class _AdministrativeStaffingScreenState
                   ])),
                 );
               }
-              final worker = staff[index];
+              final worker = staff[index - 1];
               final name = worker['full_name']?.toString() ?? 'Unnamed worker';
+              final email = worker['email']?.toString().trim() ?? '';
+              final phone = worker['phone']?.toString().trim() ?? '';
               return Card(
                 margin: const EdgeInsets.only(bottom: 8),
                 color: Theme.of(context).cardColor,
@@ -3636,7 +3753,11 @@ class _AdministrativeStaffingScreenState
                       child: Text(name.substring(0, 1).toUpperCase())),
                   title: Text(name),
                   subtitle: Text(
-                    '${worker['role'] ?? 'Staff'} | ${worker['assigned_client_count'] ?? 0} clients | ${worker['is_active'] == false ? 'Inactive' : 'Active'}',
+                    [
+                      if (email.isNotEmpty) email,
+                      if (phone.isNotEmpty) phone,
+                      '${worker['role'] ?? 'Staff'} | ${worker['assigned_client_count'] ?? 0} clients | ${worker['is_active'] == false ? 'Inactive' : 'Active'}',
+                    ].join('\n'),
                   ),
                   trailing: canManageWorkers
                       ? PopupMenuButton<String>(
@@ -3701,7 +3822,8 @@ class _AdministrativeStaffingScreenState
                 TextField(
                   controller: phone,
                   keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(labelText: 'Phone (optional)'),
+                  decoration:
+                      const InputDecoration(labelText: 'Phone (optional)'),
                 ),
                 TextField(
                   controller: password,
@@ -3764,7 +3886,8 @@ class _AdministrativeStaffingScreenState
                           }
                         } catch (error) {
                           setDialogState(() => saving = false);
-                          _message(context, 'Unable to add staff member: $error');
+                          _message(
+                              context, 'Unable to add staff member: $error');
                         }
                       },
                 child: saving
@@ -4296,8 +4419,7 @@ class _AdministrativeFinancePanelState
                       ),
                       title: Text(entry['description']?.toString() ??
                           'Financial entry'),
-                      subtitle:
-                          Text(
+                      subtitle: Text(
                         '${entry['client_name']?.toString() ?? 'Business'}'
                         ' · ${_paymentMethodLabel(entry['payment_method'])}',
                       ),
@@ -4507,8 +4629,7 @@ class _AdministrativeFinancePanelState
     final description =
         TextEditingController(text: entry['description']?.toString() ?? '');
     var type = entry['entry_type']?.toString() ?? 'expense';
-    var paymentMethod =
-        entry['payment_method']?.toString() ?? 'cash';
+    var paymentMethod = entry['payment_method']?.toString() ?? 'cash';
     final saved = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
@@ -4640,6 +4761,12 @@ class _AdministrativeInvoicesScreenState
             return ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                _WorkflowHeader(
+                  icon: Icons.receipt_long_outlined,
+                  title: 'Client invoices',
+                  description:
+                      '${all.length} invoices across drafts, sent, and paid.',
+                ),
                 Wrap(
                   spacing: 8,
                   children: ['All', 'Draft', 'Sent', 'Paid', 'Void']
@@ -4739,7 +4866,7 @@ class _AdministrativeInvoicesScreenState
               title: const Text('Mark as sent'),
               onTap: () => Navigator.pop(sheetContext, 'send'),
             ),
-          if (status == 'sent')
+          if (status == 'draft' || status == 'sent')
             ListTile(
               leading: const Icon(Icons.payments_outlined),
               title: const Text('Record payment'),
@@ -4774,8 +4901,7 @@ class _AdministrativeInvoicesScreenState
         await _showRevenueReceiptDialog(
           context,
           amount: payment['amount'] as double,
-          description:
-              'Payment for invoice ${invoice['invoice_number'] ?? ''}',
+          description: 'Payment for invoice ${invoice['invoice_number'] ?? ''}',
           paymentMethod: payment['method'] as String,
           clientName: invoice['client_name']?.toString() ?? 'Client',
         );
@@ -4816,15 +4942,14 @@ class _AdministrativeInvoicesScreenState
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 value: paymentMethod,
-                decoration:
-                    const InputDecoration(labelText: 'Payment method'),
+                decoration: const InputDecoration(labelText: 'Payment method'),
                 items: const [
                   DropdownMenuItem(value: 'cash', child: Text('Cash')),
                   DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
                   DropdownMenuItem(value: 'mixed', child: Text('Mixed')),
                 ],
-                onChanged: (value) => setDialogState(
-                    () => paymentMethod = value ?? 'cash'),
+                onChanged: (value) =>
+                    setDialogState(() => paymentMethod = value ?? 'cash'),
               ),
             ],
           ),
@@ -5010,8 +5135,8 @@ class _AdministrativeInvoiceDetailScreenState
                             value: 'transfer', child: Text('Transfer')),
                         DropdownMenuItem(value: 'mixed', child: Text('Mixed')),
                       ],
-                      onChanged: (value) => setDialogState(
-                          () => paymentMethod = value ?? 'cash'),
+                      onChanged: (value) =>
+                          setDialogState(() => paymentMethod = value ?? 'cash'),
                     ),
                   ],
                 ),
@@ -5141,7 +5266,7 @@ class _AdministrativeInvoiceDetailScreenState
                         icon: const Icon(Icons.send_outlined),
                         label: const Text('Mark as sent'),
                       ),
-                    if (status == 'sent')
+                    if (status == 'draft' || status == 'sent')
                       FilledButton.tonalIcon(
                         onPressed: () =>
                             _updateInvoiceStatus(invoice, 'payment'),
@@ -5272,6 +5397,12 @@ class _AdministrativeCreateInvoiceScreenState
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            _WorkflowHeader(
+              icon: Icons.receipt_long_outlined,
+              title: 'Build a clear invoice',
+              description:
+                  'Choose a client, list services, and set payment terms.',
+            ),
             DropdownButtonFormField<String>(
               value: _clientId,
               decoration: const InputDecoration(
