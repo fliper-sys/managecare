@@ -12,7 +12,7 @@ function createTestApp({
   inventoryCategory = 'Fuel',
   barInvoiceCollected = false,
 } = {}) {
-  const state = { sale: null, items: [], stockUpdates: 0, commits: 0, rollbacks: 0 };
+  const state = { sale: null, items: [], stockUpdates: 0, commits: 0, rollbacks: 0, saleDeletes: 0 };
   const sale = (id, createdAt, saleType) => ({
     id,
     business_id: businessId,
@@ -67,6 +67,13 @@ function createTestApp({
       }
       if (sql.includes('SELECT * FROM sale_items')) {
         return { rows: state.items };
+      }
+      if (sql.includes('AS is_fuel_sale')) {
+        return { rows: [{ is_fuel_sale: true }] };
+      }
+      if (sql.includes('DELETE FROM sales')) {
+        state.saleDeletes += 1;
+        return { rows: [] };
       }
       if (sql.includes('INSERT INTO sale_items')) {
         if (inventoryCategory === 'Fuel') {
@@ -244,4 +251,24 @@ test('direct bar sale still deducts inventory', async () => {
 
   assert.equal(response.status, 201);
   assert.equal(state.stockUpdates, 1);
+});
+
+test('fuel sale deletion is rejected before restoring aggregate inventory', async () => {
+  const { app, state } = createTestApp();
+  state.sale = { id: saleId, business_id: businessId, sale_type: 'fuel' };
+  state.items = [{ sale_id: saleId, product_id: productId, quantity: 2.5 }];
+  const server = app.listen(0);
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/sales/${businessId}/${saleId}`,
+      { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: '{}' },
+    );
+    assert.equal(response.status, 409);
+    assert.match((await response.json()).error, /badge allocations/);
+    assert.equal(state.stockUpdates, 0);
+    assert.equal(state.saleDeletes, 0);
+    assert.equal(state.rollbacks, 1);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });

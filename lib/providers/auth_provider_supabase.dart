@@ -274,8 +274,8 @@ class AuthProvider with ChangeNotifier {
             event.signOutReason == SignOutReason.sessionExpired ||
                 event.signOutReason == SignOutReason.sessionMissing;
         if (refreshSessionExpired) {
-          final userToKeep = _currentUser ??
-              (hasPersistedSession ? cachedUser : null);
+          final userToKeep =
+              _currentUser ?? (hasPersistedSession ? cachedUser : null);
           if (userToKeep != null) {
             await _restoreCachedUserForOfflineStartup(
               userToKeep,
@@ -434,8 +434,8 @@ class AuthProvider with ChangeNotifier {
 
       final preferencesCachedUser = _localStorage!.getCachedUser();
       final cached = preferencesCachedUser ?? sqliteCachedUser;
-      final autoLogin = _localStorage!.isAutoLoginEnabled() ||
-          sqliteCachedUser != null;
+      final autoLogin =
+          _localStorage!.isAutoLoginEnabled() || sqliteCachedUser != null;
       DeviceLoggerService.capture(
         'Auth cache initialized: auto-login=$autoLogin, '
         'SharedPreferences user=${preferencesCachedUser != null}, '
@@ -552,8 +552,7 @@ class AuthProvider with ChangeNotifier {
             'Backend profile refresh was uncertain; retaining cached user',
             severity: 'WARNING',
           );
-          await _restoreCachedUserForOfflineStartup(
-              _getCachedUser()!);
+          await _restoreCachedUserForOfflineStartup(_getCachedUser()!);
           return;
         }
         DeviceLoggerService.capture(
@@ -719,6 +718,11 @@ class AuthProvider with ChangeNotifier {
     String role = 'owner',
     String businessId = '',
     String? referralEmail,
+    String? businessType,
+    String? storeId,
+    String? pin,
+    double? commissionPercentage,
+    Map<String, bool>? permissions,
   }) async {
     try {
       _status = AuthStatus.loading;
@@ -733,6 +737,12 @@ class AuthProvider with ChangeNotifier {
           fullName: fullName,
           businessId: businessId,
           role: role,
+          businessType: businessType,
+          storeId: storeId,
+          pin: pin,
+          commissionPercentage: commissionPercentage,
+          permissions: permissions,
+          phoneNumber: phoneNumber,
         );
         _errorMessage = null;
         _status = _currentUser != null
@@ -925,8 +935,7 @@ class AuthProvider with ChangeNotifier {
       _errorMessage = null;
       return true;
     } catch (e) {
-      _errorMessage =
-          _extractMessage(e, fallback: 'Failed to update profile.');
+      _errorMessage = _extractMessage(e, fallback: 'Failed to update profile.');
       notifyListeners();
       return false;
     }
@@ -1197,8 +1206,7 @@ class AuthProvider with ChangeNotifier {
       if (!access.isAllowed || access.user == null) {
         if (_canKeepCachedUserAfterUncertainAccessFailure(
             uid, access.message)) {
-          await _restoreCachedUserForOfflineStartup(
-              _getCachedUser()!);
+          await _restoreCachedUserForOfflineStartup(_getCachedUser()!);
           return;
         }
         await _forceLogoutBecauseAccessChanged(

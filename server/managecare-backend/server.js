@@ -3053,7 +3053,10 @@ app.post('/admin-api/workers', authMiddleware, async (req, res) => {
   // This endpoint is called from Flutter's AuthenticationService.createWorkerUser
   return runWithUser(req.user.id, async () => {
     try {
-    const { business_id, email, password, full_name, phone, role, permissions } = req.body;
+    const {
+      business_id, email, password, full_name, phone, role, permissions,
+      store_id, pin, commission_percentage,
+    } = req.body;
     if (!business_id) {
       return res.status(400).json({ error: 'business_id is required' });
     }
@@ -3078,6 +3081,12 @@ app.post('/admin-api/workers', authMiddleware, async (req, res) => {
     const normalizedEmail = normalizeEmail(email);
     if (!normalizedEmail || typeof password !== 'string' || password.length === 0) {
       return res.status(400).json({ error: 'A valid email and password are required' });
+    }
+    const commissionPercentage = commission_percentage == null
+      ? 0
+      : Number(commission_percentage);
+    if (!Number.isFinite(commissionPercentage) || commissionPercentage < 0 || commissionPercentage > 100) {
+      return res.status(400).json({ error: 'commission_percentage must be between 0 and 100' });
     }
     if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
       return res.status(503).json({ error: 'Worker authentication is not configured on the server' });
@@ -3123,8 +3132,11 @@ app.post('/admin-api/workers', authMiddleware, async (req, res) => {
 
       const profile = profileResult.rows[0];
       const workerResult = await client.query(
-        `INSERT INTO workers (id, email, password_hash, full_name, phone, role, business_id, permissions)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO workers (
+           id, email, password_hash, full_name, phone, role, business_id,
+           permissions, store_id, pin, commission_percentage
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          ON CONFLICT (id) DO UPDATE SET
            email = EXCLUDED.email,
            password_hash = EXCLUDED.password_hash,
@@ -3133,21 +3145,34 @@ app.post('/admin-api/workers', authMiddleware, async (req, res) => {
            role = EXCLUDED.role,
            business_id = EXCLUDED.business_id,
            permissions = EXCLUDED.permissions,
+           store_id = EXCLUDED.store_id,
+           pin = EXCLUDED.pin,
+           commission_percentage = EXCLUDED.commission_percentage,
            updated_at = NOW()
-         RETURNING id, email, full_name, role`,
-        [profile.id, normalizedEmail, hash, full_name, phone || null, role || 'staff', business_id, JSON.stringify(permissions || {})]
+         RETURNING id, email, full_name, role, store_id, pin, commission_percentage`,
+        [
+          profile.id, normalizedEmail, hash, full_name, phone || null,
+          role || 'staff', business_id, JSON.stringify(permissions || {}),
+          store_id || null, pin || null, commissionPercentage,
+        ]
       );
 
       await client.query(
-        `INSERT INTO business_members (user_id, business_id, role, is_owner, is_active, permissions)
-         VALUES ($1, $2, $3, false, true, $4)
+        `INSERT INTO business_members (
+           user_id, business_id, role, is_owner, is_active, permissions, store_id
+         )
+         VALUES ($1, $2, $3, false, true, $4, $5)
          ON CONFLICT (user_id, business_id) DO UPDATE SET
            role = EXCLUDED.role,
            is_owner = false,
            is_active = true,
            permissions = EXCLUDED.permissions,
+           store_id = EXCLUDED.store_id,
            updated_at = NOW()`,
-        [profile.id, business_id, role || 'staff', JSON.stringify(permissions || {})]
+        [
+          profile.id, business_id, role || 'staff',
+          JSON.stringify(permissions || {}), store_id || null,
+        ]
       );
 
       await client.query('COMMIT');

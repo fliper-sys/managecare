@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
-import '../data/repositories/worker_repository_impl.dart';
+import '../data/repositories/worker_repository_supabase.dart';
 
 class WorkersProvider with ChangeNotifier {
-  final WorkerRepositoryImpl _repository;
+  final WorkerRepositorySupabase _repository;
   List<Map<String, dynamic>> _workers = [];
   bool _isLoading = false;
   String? _error;
@@ -10,8 +10,8 @@ class WorkersProvider with ChangeNotifier {
 
   WorkersProvider({
     required String businessId,
-    WorkerRepositoryImpl? repository,
-  }) : _repository = repository ?? WorkerRepositoryImpl() {
+    WorkerRepositorySupabase? repository,
+  }) : _repository = repository ?? WorkerRepositorySupabase() {
     // initial load
     if (businessId.isNotEmpty) {
       loadWorkers(businessId);
@@ -70,6 +70,23 @@ class WorkersProvider with ChangeNotifier {
     } catch (e) {
       return null;
     }
+  }
+
+  /// Create a worker through the Supabase-backed API and refresh this business.
+  Future<Map<String, dynamic>> addWorker(
+    Map<String, dynamic> data, {
+    String? businessId,
+  }) async {
+    final targetBusinessId = (businessId ?? _businessId ?? '').trim();
+    if (targetBusinessId.isEmpty) {
+      throw ArgumentError('businessId is required to create a worker');
+    }
+
+    final payload = Map<String, dynamic>.from(data)
+      ..['businessId'] = targetBusinessId;
+    final worker = await _repository.addWorker(payload);
+    await _refreshBusinessScopeAfterMutation(targetBusinessId);
+    return Map<String, dynamic>.from(worker as Map);
   }
 
   /// Update a worker's profile fields (name, phone, role, permissions, pin, ...).

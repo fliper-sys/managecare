@@ -78,6 +78,13 @@ function errorHandler(err, req, res, next) {
     // Foreign key violation
     return res.status(400).json({ error: 'Referenced record does not exist' });
   }
+  if (err.code === '23514') {
+    // Check constraint / stock invariant conflict, not an internal failure.
+    const message = /Insufficient petroleum badge stock/i.test(err.message || '')
+      ? 'Insufficient petroleum badge stock. Reconcile fuel inventory and try again.'
+      : 'The requested change conflicts with a current stock or business rule.';
+    return res.status(409).json({ error: message });
+  }
   if (err.code === '42P01') {
     // Undefined table
     return res.status(500).json({ error: 'Internal server configuration error' });

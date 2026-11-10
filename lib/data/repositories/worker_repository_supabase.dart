@@ -229,6 +229,9 @@ class WorkerRepositorySupabase implements WorkerRepository {
       if (hasPermissions)
         'permissions': data['permissions'] ?? data['customPermissions'],
       if (data.containsKey('pin')) 'pin': data['pin'],
+      if (data.containsKey('isLoginEnabled') ||
+          data.containsKey('is_login_enabled'))
+        'is_login_enabled': data['isLoginEnabled'] ?? data['is_login_enabled'],
       if (data.containsKey('isActive') || data.containsKey('is_active'))
         'is_active': data['isActive'] ?? data['is_active'],
       if (data.containsKey('commissionPercentage') ||
@@ -261,6 +264,7 @@ class WorkerRepositorySupabase implements WorkerRepository {
     worker['businessId'] ??= worker['business_id'];
     worker['storeId'] ??= worker['store_id'];
     worker['isActive'] ??= worker['is_active'] != false;
+    worker['isLoginEnabled'] ??= worker['is_login_enabled'] == true;
     worker['commissionPercentage'] ??= worker['commission_percentage'];
     worker['createdAt'] ??= worker['created_at'];
     worker['updatedAt'] ??= worker['updated_at'];

@@ -621,6 +621,24 @@ module.exports = function(pool) {
         [id]
       );
 
+      const fuelCheck = await client.query(
+        `SELECT LOWER(COALESCE($3, '')) ~ '(fuel|petrol|diesel|kerosene|petroleum|pump|pms|ago|dpk|gas)'
+             OR EXISTS (
+               SELECT 1
+                 FROM sale_items si
+                 LEFT JOIN inventory i ON i.id = si.product_id AND i.business_id = $2
+                WHERE si.sale_id = $1
+                  AND LOWER(CONCAT_WS(' ', i.category, i.name, i.unit)) ~ '(fuel|petrol|diesel|kerosene|petroleum|pms|ago|dpk|gas)'
+             ) AS is_fuel_sale`,
+        [id, businessId, sale.sale_type]
+      );
+      if (fuelCheck.rows[0]?.is_fuel_sale) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'Fuel sales cannot be deleted through this route because stock reversal must restore the original badge allocations.',
+        });
+      }
+
       for (const item of itemsResult.rows) {
         if (item.product_id) {
           const qty = parseFloat(item.quantity) * parseFloat(item.sale_unit_multiplier || 1);

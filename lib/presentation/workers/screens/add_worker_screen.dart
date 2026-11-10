@@ -44,7 +44,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
   final _commissionController = TextEditingController();
   final _pinController = TextEditingController();
   // support multiple roles for workers (salon/barber may need multiple roles)
-  final Set<String> _selectedRoles = {'staff'}; 
+  final Set<String> _selectedRoles = {'staff'};
   final List<String> _selectedServiceIds = [];
   final Set<String> _selectedPumpIds = {};
   List<Map<String, dynamic>> _cachedPumps = [];
@@ -120,11 +120,17 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
   }
 
   bool _isBakeryBakerRole() {
-    final businessType = context.read<BusinessProvider>().currentBusiness?.businessType ?? '';
-    final normalized = businessType.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
-    final isBakeryBusiness = normalized == 'bakery' || normalized == 'bakeryshop' || normalized == 'bakeshop';
+    final businessType =
+        context.read<BusinessProvider>().currentBusiness?.businessType ?? '';
+    final normalized =
+        businessType.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    final isBakeryBusiness = normalized == 'bakery' ||
+        normalized == 'bakeryshop' ||
+        normalized == 'bakeshop';
     if (!isBakeryBusiness) return false;
-    return _selectedRoles.any((role) => role.toLowerCase().contains('baker') || role.toLowerCase().contains('pastry'));
+    return _selectedRoles.any((role) =>
+        role.toLowerCase().contains('baker') ||
+        role.toLowerCase().contains('pastry'));
   }
 
   List<String> _getRolesForBusiness(String businessType) {
@@ -192,7 +198,8 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
     final remotePumps = PumpConfigCache.sort(
       docs.map(PumpConfigCache.fromDoc).toList(),
     );
-    if (remotePumps.isEmpty || PumpConfigCache.same(remotePumps, _cachedPumps)) {
+    if (remotePumps.isEmpty ||
+        PumpConfigCache.same(remotePumps, _cachedPumps)) {
       return;
     }
 
@@ -227,7 +234,9 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
 
   String _readableRole(String role) {
     if (role.isEmpty) return role;
-    return role.splitMapJoin(RegExp(r'[_\s]'), onMatch: (m) => ' ', onNonMatch: (s) => s)
+    return role
+        .splitMapJoin(RegExp(r'[_\s]'),
+            onMatch: (m) => ' ', onNonMatch: (s) => s)
         .split(' ')
         .map((p) => p.isEmpty ? p : '${p[0].toUpperCase()}${p.substring(1)}')
         .join(' ');
@@ -354,16 +363,29 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
       // Hash password before storing in Firestore (better than plaintext).
       final passwordHash = sha256.convert(utf8.encode(password)).toString();
 
-      final businessType = context.read<BusinessProvider>().currentBusiness?.businessType;
+      final businessType =
+          context.read<BusinessProvider>().currentBusiness?.businessType;
 
       final primaryRole = _selectedRoles.firstWhere(
         (role) => role != 'staff',
-        orElse: () => _selectedRoles.isNotEmpty ? _selectedRoles.first : 'staff',
+        orElse: () =>
+            _selectedRoles.isNotEmpty ? _selectedRoles.first : 'staff',
       );
       final effectivePermissions = _effectivePermissionsForSelection();
+      final permissionsForWorker = <String, bool>{
+        for (final permission in effectivePermissions) permission: true,
+      };
+      final selectedBusinessId =
+          context.read<BusinessProvider>().currentBusiness?.id ??
+              authProvider.currentUser!.businessId;
+      if (selectedBusinessId.isEmpty) {
+        throw Exception('Select a business before creating a worker.');
+      }
 
       // Commission percentage (if worker is barber/stylist)
-      final commissionPct = (_selectedRoles.contains('barber') || _selectedRoles.contains('hairstylist') || _selectedRoles.contains('stylist'))
+      final commissionPct = (_selectedRoles.contains('barber') ||
+              _selectedRoles.contains('hairstylist') ||
+              _selectedRoles.contains('stylist'))
           ? (double.tryParse(_commissionController.text.trim()) ?? 0.0)
           : 0.0;
 
@@ -373,8 +395,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
       var authAccountCreated = false;
       if (isBakeryBaker && normalizedEmail.isEmpty) {
         try {
-          final workerRepo = WorkerRepositoryImpl(firestore: FirebaseFirestore.instance);
-          final createdWorker = await workerRepo.addWorker({
+          await context.read<WorkersProvider>().addWorker({
             'name': _fullNameController.text.trim(),
             'fullName': _fullNameController.text.trim(),
             'email': '',
@@ -384,7 +405,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
             'roles': _selectedRoles.toList(),
             'permissions': effectivePermissions,
             'customPermissions': effectivePermissions,
-            'businessId': authProvider.currentUser!.businessId,
+            'businessId': selectedBusinessId,
             'businessType': businessType,
             'storeId': _selectedStoreId,
             'pin': _pinController.text.trim(),
@@ -394,7 +415,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
             'updatedAt': DateTime.now(),
             'isLoginEnabled': false,
             'notes': 'Bakery worker created without login credentials',
-          });
+          }, businessId: selectedBusinessId);
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
@@ -422,19 +443,14 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
         } catch (e) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Failed to add bakery worker: $e'), backgroundColor: AppColors.error),
+              SnackBar(
+                  content: Text('Failed to add bakery worker: $e'),
+                  backgroundColor: AppColors.error),
             );
           }
           setState(() => _isLoading = false);
           return;
         }
-      }
-
-      final selectedBusinessId =
-          context.read<BusinessProvider>().currentBusiness?.id ??
-              authProvider.currentUser!.businessId;
-      if (selectedBusinessId.isEmpty) {
-        throw Exception('Select a business before creating a worker.');
       }
 
       final createdWorkerLogin = await authProvider.register(
@@ -444,6 +460,11 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
         phoneNumber: _phoneController.text.trim(),
         role: primaryRole,
         businessId: selectedBusinessId,
+        businessType: businessType,
+        storeId: _selectedStoreId,
+        pin: _pinController.text.trim(),
+        commissionPercentage: commissionPct,
+        permissions: permissionsForWorker,
       );
       if (!createdWorkerLogin) {
         throw Exception(
@@ -628,7 +649,10 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
 
             // Create barber/stylist docs if needed (mirror logic used below)
             final businessTypeLow = (businessType ?? '').toLowerCase();
-            if ((_selectedRoles.contains('barber') || primaryRole == 'barber') && (businessTypeLow == 'barber' || businessTypeLow == 'barbershop')) {
+            if ((_selectedRoles.contains('barber') ||
+                    primaryRole == 'barber') &&
+                (businessTypeLow == 'barber' ||
+                    businessTypeLow == 'barbershop')) {
               try {
                 final barberDoc = FirebaseFirestore.instance
                     .collection('businesses')
@@ -648,11 +672,16 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                   'createdAt': Timestamp.fromDate(DateTime.now()),
                 });
               } catch (e) {
-                print('[AddWorker] Failed to add barber document for existing user: $e');
+                print(
+                    '[AddWorker] Failed to add barber document for existing user: $e');
               }
             }
 
-            if ((_selectedRoles.contains('hairstylist') || _selectedRoles.contains('stylist') || primaryRole == 'hairstylist' || primaryRole == 'stylist') && businessTypeLow == 'salon') {
+            if ((_selectedRoles.contains('hairstylist') ||
+                    _selectedRoles.contains('stylist') ||
+                    primaryRole == 'hairstylist' ||
+                    primaryRole == 'stylist') &&
+                businessTypeLow == 'salon') {
               try {
                 final stylistDoc = FirebaseFirestore.instance
                     .collection('businesses')
@@ -672,7 +701,8 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                   'createdAt': Timestamp.fromDate(DateTime.now()),
                 });
               } catch (e) {
-                print('[AddWorker] Failed to add stylist document for existing user: $e');
+                print(
+                    '[AddWorker] Failed to add stylist document for existing user: $e');
               }
             }
 
@@ -680,14 +710,16 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
             try {
               await repo.resetPassword(normalizedEmail, accountType: 'worker');
             } catch (resetErr) {
-              print('[AddWorker] Failed to send password reset email: $resetErr');
+              print(
+                  '[AddWorker] Failed to send password reset email: $resetErr');
             }
 
             setState(() => _isLoading = false);
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Email already exists. Linked worker data to existing account (UID: $existingUid). A password reset email was sent to $normalizedEmail — ask the worker to reset their password and log in.'),
+                  content: Text(
+                      'Email already exists. Linked worker data to existing account (UID: $existingUid). A password reset email was sent to $normalizedEmail — ask the worker to reset their password and log in.'),
                   backgroundColor: AppColors.warning,
                 ),
               );
@@ -715,7 +747,8 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
           try {
             await tempAuth!.currentUser!.delete();
           } catch (deleteError) {
-            print('[AddWorker] Failed to rollback auth user creation: $deleteError');
+            print(
+                '[AddWorker] Failed to rollback auth user creation: $deleteError');
           }
         }
         rethrow;
@@ -732,12 +765,14 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
       try {
         final workerRepo =
             WorkerRepositoryImpl(firestore: FirebaseFirestore.instance);
-        final businessType = context.read<BusinessProvider>().currentBusiness?.businessType;
+        final businessType =
+            context.read<BusinessProvider>().currentBusiness?.businessType;
 
         // Resolve selected service names for convenience
         List<String> selectedServiceNames = [];
         if (_selectedServiceIds.isNotEmpty) {
-          if ((businessType ?? '').toLowerCase() == 'barber' || (businessType ?? '').toLowerCase() == 'barbershop') {
+          if ((businessType ?? '').toLowerCase() == 'barber' ||
+              (businessType ?? '').toLowerCase() == 'barbershop') {
             final barberProvider = context.read<BarberShopProvider>();
             selectedServiceNames = barberProvider.services
                 .where((s) => _selectedServiceIds.contains(s.id))
@@ -751,8 +786,6 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                 .toList();
           }
         }
-
-
 
         final workerData = {
           'id': worker.id,
@@ -827,7 +860,9 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
 
           // If worker has barber role and business is barbershop, also create a barber entry
           final businessTypeLow = (businessType ?? '').toLowerCase();
-          if ((_selectedRoles.contains('barber') || primaryRole == 'barber') && (businessTypeLow == 'barber' || businessTypeLow == 'barbershop')) {
+          if ((_selectedRoles.contains('barber') || primaryRole == 'barber') &&
+              (businessTypeLow == 'barber' ||
+                  businessTypeLow == 'barbershop')) {
             try {
               final barberDoc = FirebaseFirestore.instance
                   .collection('businesses')
@@ -858,7 +893,11 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
           }
 
           // If stylist/hairstylist role and business is a salon, create stylist document
-          if ((_selectedRoles.contains('hairstylist') || _selectedRoles.contains('stylist') || primaryRole == 'hairstylist' || primaryRole == 'stylist') && businessTypeLow == 'salon') {
+          if ((_selectedRoles.contains('hairstylist') ||
+                  _selectedRoles.contains('stylist') ||
+                  primaryRole == 'hairstylist' ||
+                  primaryRole == 'stylist') &&
+              businessTypeLow == 'salon') {
             try {
               final stylistDoc = FirebaseFirestore.instance
                   .collection('businesses')
@@ -998,7 +1037,9 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
               TextFormField(
                 controller: _emailController,
                 decoration: InputDecoration(
-                  labelText: _isBakeryBakerRole() ? 'Email (optional for bakers)' : 'Email',
+                  labelText: _isBakeryBakerRole()
+                      ? 'Email (optional for bakers)'
+                      : 'Email',
                   prefixIcon: const Icon(Icons.email),
                   border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8)),
@@ -1044,10 +1085,14 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                       borderRadius: BorderRadius.circular(8)),
                   suffixIcon: IconButton(
                     icon: Icon(
-                      _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                      _obscurePassword
+                          ? Icons.visibility
+                          : Icons.visibility_off,
                     ),
-                    onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-                    tooltip: _obscurePassword ? 'Show password' : 'Hide password',
+                    onPressed: () =>
+                        setState(() => _obscurePassword = !_obscurePassword),
+                    tooltip:
+                        _obscurePassword ? 'Show password' : 'Hide password',
                   ),
                 ),
                 obscureText: _obscurePassword,
@@ -1069,21 +1114,26 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                       decoration: InputDecoration(
                         labelText: '4-digit PIN (optional)',
                         prefixIcon: const Icon(Icons.pin),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8)),
                       ),
                       keyboardType: TextInputType.number,
                       maxLength: 4,
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) return null;
                         final t = value.trim();
-                        if (t.length != 4 || int.tryParse(t) == null) return 'Enter a 4-digit PIN';
+                        if (t.length != 4 || int.tryParse(t) == null)
+                          return 'Enter a 4-digit PIN';
                         return null;
                       },
                     ),
                   ),
                   const SizedBox(width: 8),
                   ElevatedButton.icon(
-                    onPressed: () { setState(() => _pinController.text = _generateRandomPin()); },
+                    onPressed: () {
+                      setState(
+                          () => _pinController.text = _generateRandomPin());
+                    },
                     icon: const Icon(Icons.refresh),
                     label: const Text('Generate'),
                   ),
@@ -1094,13 +1144,18 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
 
               // Role Selection (multiple)
               Builder(builder: (context) {
-                final businessType = context.read<BusinessProvider>().currentBusiness?.businessType ?? '';
+                final businessType = context
+                        .read<BusinessProvider>()
+                        .currentBusiness
+                        ?.businessType ??
+                    '';
                 final roles = _getRolesForBusiness(businessType);
                 final isFuelStation = _isFuelStationBusiness(businessType);
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Role', style: TextStyle(fontWeight: FontWeight.w600)),
+                    const Text('Role',
+                        style: TextStyle(fontWeight: FontWeight.w600)),
                     const SizedBox(height: 4),
                     Text(
                       isFuelStation
@@ -1129,7 +1184,8 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                             }
                             if (selected) {
                               _selectedRoles.remove(r);
-                              if (_selectedRoles.isEmpty) _selectedRoles.add('staff');
+                              if (_selectedRoles.isEmpty)
+                                _selectedRoles.add('staff');
                             } else {
                               _selectedRoles.add(r);
                             }
@@ -1221,11 +1277,8 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                 }
                 final pumps = _pumpCollection();
                 if (pumps == null) return const SizedBox.shrink();
-                final businessId = context
-                        .read<BusinessProvider>()
-                        .currentBusiness
-                        ?.id ??
-                    '';
+                final businessId =
+                    context.read<BusinessProvider>().currentBusiness?.id ?? '';
 
                 return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: pumps
@@ -1290,7 +1343,8 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                             runSpacing: 8,
                             children: availablePumps.map((pump) {
                               final pumpId = pump['id']?.toString() ?? '';
-                              final selected = _selectedPumpIds.contains(pumpId);
+                              final selected =
+                                  _selectedPumpIds.contains(pumpId);
                               final label =
                                   'Pump ${pump['pumpNumber'] ?? ''} - ${pump['productName'] ?? 'Fuel'}';
                               return FilterChip(
@@ -1343,26 +1397,36 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
 
               // Service assignment (for Salon/Barber businesses)
               Builder(builder: (context) {
-                final businessType = context.read<BusinessProvider>().currentBusiness?.businessType ?? '';
-                if (!(businessType.toLowerCase() == 'salon' || businessType.toLowerCase() == 'barber' || businessType.toLowerCase() == 'barbershop')) {
+                final businessType = context
+                        .read<BusinessProvider>()
+                        .currentBusiness
+                        ?.businessType ??
+                    '';
+                if (!(businessType.toLowerCase() == 'salon' ||
+                    businessType.toLowerCase() == 'barber' ||
+                    businessType.toLowerCase() == 'barbershop')) {
                   return const SizedBox.shrink();
                 }
 
                 // Load services from the appropriate provider
-                if (businessType.toLowerCase() == 'barber' || businessType.toLowerCase() == 'barbershop') {
+                if (businessType.toLowerCase() == 'barber' ||
+                    businessType.toLowerCase() == 'barbershop') {
                   final barberProvider = context.read<BarberShopProvider>();
-                  if (barberProvider.services.isEmpty) barberProvider.loadServices();
+                  if (barberProvider.services.isEmpty)
+                    barberProvider.loadServices();
                   final services = barberProvider.services;
                   if (services.isEmpty) return const SizedBox.shrink();
 
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Services', style: TextStyle(fontWeight: FontWeight.w600)),
+                      const Text('Services',
+                          style: TextStyle(fontWeight: FontWeight.w600)),
                       const SizedBox(height: 8),
                       ...services.map((s) => CheckboxListTile(
                             title: Text(s.name),
-                            subtitle: Text('₦${s.price.toStringAsFixed(0)} • ${s.durationMinutes}min'),
+                            subtitle: Text(
+                                '₦${s.price.toStringAsFixed(0)} • ${s.durationMinutes}min'),
                             value: _selectedServiceIds.contains(s.id),
                             onChanged: (v) => setState(() {
                               if (v == true) {
@@ -1376,18 +1440,21 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                   );
                 } else {
                   final salonProvider = context.read<SalonProvider>();
-                  if (salonProvider.services.isEmpty) salonProvider.loadServices();
+                  if (salonProvider.services.isEmpty)
+                    salonProvider.loadServices();
                   final services = salonProvider.services;
                   if (services.isEmpty) return const SizedBox.shrink();
 
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Services', style: TextStyle(fontWeight: FontWeight.w600)),
+                      const Text('Services',
+                          style: TextStyle(fontWeight: FontWeight.w600)),
                       const SizedBox(height: 8),
                       ...services.map((s) => CheckboxListTile(
                             title: Text(s.name),
-                            subtitle: Text('₦${s.price.toStringAsFixed(0)} • ${s.durationMinutes}min'),
+                            subtitle: Text(
+                                '₦${s.price.toStringAsFixed(0)} • ${s.durationMinutes}min'),
                             value: _selectedServiceIds.contains(s.id),
                             onChanged: (v) => setState(() {
                               if (v == true) {
@@ -1405,7 +1472,9 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
               const SizedBox(height: 20),
 
               // Commission percentage for barbers/stylists (optional)
-              if ((_selectedRoles.contains('barber') || _selectedRoles.contains('hairstylist') || _selectedRoles.contains('stylist')))
+              if ((_selectedRoles.contains('barber') ||
+                  _selectedRoles.contains('hairstylist') ||
+                  _selectedRoles.contains('stylist')))
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: TextFormField(
@@ -1413,15 +1482,18 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                     decoration: InputDecoration(
                       labelText: 'Commission (%)',
                       prefixIcon: const Icon(Icons.percent),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8)),
                       suffixText: '%',
                     ),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
                     validator: (value) {
                       if (value == null || value.trim().isEmpty) return null;
                       final v = double.tryParse(value);
                       if (v == null) return 'Enter a valid number';
-                      if (v < 0 || v > 100) return 'Enter a percentage between 0 and 100';
+                      if (v < 0 || v > 100)
+                        return 'Enter a percentage between 0 and 100';
                       return null;
                     },
                   ),
@@ -1473,7 +1545,8 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                           .map(
                             (permission) => Chip(
                               label: Text(
-                                WorkerPermissions.getPermissionLabel(permission),
+                                WorkerPermissions.getPermissionLabel(
+                                    permission),
                               ),
                             ),
                           )
@@ -1510,4 +1583,3 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
     );
   }
 }
-

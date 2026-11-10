@@ -53,7 +53,8 @@ class AuthenticationService {
         )
         .timeout(const Duration(seconds: 20));
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('Password recovery is temporarily unavailable. Please try again.');
+      throw Exception(
+          'Password recovery is temporarily unavailable. Please try again.');
     }
   }
 
@@ -77,9 +78,11 @@ class AuthenticationService {
     required String password,
   }) async {
     try {
-      return await _auth.signInWithPassword(email: email.trim(), password: password);
+      return await _auth.signInWithPassword(
+          email: email.trim(), password: password);
     } on AuthException catch (error) {
-      if (!error.message.toLowerCase().contains('invalid login credentials')) rethrow;
+      if (!error.message.toLowerCase().contains('invalid login credentials'))
+        rethrow;
       if (await _migrateLegacyAccount(email, password)) {
         return await _auth.signInWithPassword(
           email: email.trim(),
@@ -97,7 +100,8 @@ class AuthenticationService {
     required String password,
   }) async {
     try {
-      final response = await _signInWithCompatibility(email: email, password: password);
+      final response =
+          await _signInWithCompatibility(email: email, password: password);
 
       if (response.user == null) {
         throw Exception('Authentication failed: No user returned');
@@ -147,11 +151,8 @@ class AuthenticationService {
       } catch (_) {
         // Older deployments may not have the merged-profile RPC yet.
       }
-      profile ??= await _db
-          .from('profiles')
-          .select()
-          .eq('id', userId)
-          .maybeSingle();
+      profile ??=
+          await _db.from('profiles').select().eq('id', userId).maybeSingle();
 
       if (profile == null) {
         // Older staff accounts can exist only in `workers`. Their authenticated
@@ -167,6 +168,36 @@ class AuthenticationService {
               .maybeSingle();
         } catch (_) {
           // Fall through to the normal unavailable-account response.
+        }
+        if (profile == null && _auth.currentUser?.id == userId) {
+          // A verified GoTrue session is authoritative for its own profile ID.
+          // Repair the common missing-row case without copying a possibly
+          // conflicting email from a legacy profile; the auth email remains a
+          // safe display fallback in _composeUserModel.
+          final metadata = _auth.currentUser?.userMetadata ?? const {};
+          final fullName = [
+            metadata['full_name'],
+            metadata['name'],
+            metadata['display_name'],
+          ].map((value) => value?.toString().trim() ?? '').firstWhere(
+                (value) => value.isNotEmpty,
+                orElse: () => '',
+              );
+          await _db.from('profiles').upsert(
+            {
+              'id': userId,
+              if (fullName.isNotEmpty) 'full_name': fullName,
+              if (metadata['phone_number'] != null)
+                'phone_number': metadata['phone_number'],
+            },
+            onConflict: 'id',
+            ignoreDuplicates: true,
+          );
+          profile = await _db
+              .from('profiles')
+              .select()
+              .eq('id', userId)
+              .maybeSingle();
         }
         if (profile == null) {
           return const ResolvedUserAccess(
@@ -431,9 +462,8 @@ class AuthenticationService {
 
     final profileId = profile['id'] as String;
     final authUser = _auth.currentUser;
-    final authMetadata = authUser?.id == profileId
-        ? authUser?.userMetadata
-        : null;
+    final authMetadata =
+        authUser?.id == profileId ? authUser?.userMetadata : null;
     final profileEmail = (profile['email'] as String?)?.trim() ?? '';
     final email = profileEmail.isNotEmpty
         ? profileEmail
@@ -501,6 +531,9 @@ class AuthenticationService {
     String? businessType,
     String? phoneNumber,
     String? pin,
+    String? storeId,
+    double? commissionPercentage,
+    Map<String, bool>? permissions,
   }) async {
     var accessToken = _auth.currentSession?.accessToken;
     if (accessToken == null) {
@@ -513,9 +546,11 @@ class AuthenticationService {
       // Keep the current token; the server will reject it if it is truly stale.
     }
 
-    final permissions = <String, bool>{
-      for (final p in WorkerPermissions.getPermissionsForRole(role)) p: true,
-    };
+    final resolvedPermissions = permissions ??
+        <String, bool>{
+          for (final p in WorkerPermissions.getPermissionsForRole(role))
+            p: true,
+        };
 
     http.Response response;
     try {
@@ -533,7 +568,11 @@ class AuthenticationService {
           if (phoneNumber != null && phoneNumber.trim().isNotEmpty)
             'phone': phoneNumber.trim(),
           'role': role,
-          'permissions': permissions,
+          'permissions': resolvedPermissions,
+          if (storeId != null && storeId.isNotEmpty) 'store_id': storeId,
+          if (pin != null && pin.isNotEmpty) 'pin': pin,
+          if (commissionPercentage != null)
+            'commission_percentage': commissionPercentage,
         }),
       );
     } catch (e) {
@@ -554,8 +593,9 @@ class AuthenticationService {
       fullName: fullName.trim(),
       phoneNumber: phoneNumber,
       role: role,
-      permissions: WorkerPermissions.getPermissionsForRole(role),
+      permissions: resolvedPermissions.keys.toList(),
       businessId: businessId,
+      storeId: storeId,
       businessIds: [businessId],
       currentBusinessId: businessId,
       preferredBusinessId: businessId,
@@ -576,7 +616,8 @@ class AuthenticationService {
     required String password,
   }) async {
     try {
-      final response = await _signInWithCompatibility(email: email, password: password);
+      final response =
+          await _signInWithCompatibility(email: email, password: password);
       return response.user != null;
     } catch (e) {
       return false;
@@ -615,7 +656,8 @@ class AuthenticationService {
     required String password,
   }) async {
     try {
-      final response = await _signInWithCompatibility(email: workerId, password: password);
+      final response =
+          await _signInWithCompatibility(email: workerId, password: password);
 
       if (response.user == null) {
         throw Exception('Authentication failed');
@@ -625,7 +667,8 @@ class AuthenticationService {
         response.user!.id,
         allowSelfRecovery: true,
       );
-      if (resolvedUser == null && await _migrateLegacyAccount(workerId, password)) {
+      if (resolvedUser == null &&
+          await _migrateLegacyAccount(workerId, password)) {
         resolvedUser = await _getAccessibleUser(
           response.user!.id,
           allowSelfRecovery: true,

@@ -4,7 +4,6 @@
  * the dispute-review workflow, and the append-only adjustment audit log.
  */
 const express = require('express');
-const router = express.Router();
 const { requireFields, asyncHandler } = require('../middleware/validation');
 const { requireBusinessReadAccess, requireBusinessOwner } = require('../middleware/auth');
 
@@ -113,6 +112,7 @@ async function sendBadgeAccountability(pool, req, res, businessId, badgeId) {
 }
 
 module.exports = function(pool) {
+  const router = express.Router();
   router.use('/:businessId', requireBusinessReadAccess(pool));
 
   // ---------- Pumps (configuration) ----------
@@ -481,8 +481,8 @@ module.exports = function(pool) {
       const paymentMethod = cashAmount > 0 && posAmount > 0 ? 'mixed' : posAmount > 0 ? 'pos' : 'cash';
       const saleResult = await client.query(
         `INSERT INTO sales (business_id, worker_id, worker_name, total_amount, discount_amount, tax_amount,
-          final_amount, payment_method, payment_breakdown, status, notes, created_by, sale_type, created_at)
-         VALUES ($1, $2, $3, $4, 0, 0, $4, $5, $6::jsonb, 'completed', $7, $8, 'fuel', COALESCE($9::timestamptz, NOW()))
+          final_amount, payment_method, payment_breakdown, status, notes, created_by, sale_type, created_at, pump_upload_id)
+         VALUES ($1, $2, $3, $4, 0, 0, $4, $5, $6::jsonb, 'completed', $7, $8, 'fuel', COALESCE($9::timestamptz, NOW()), $10)
          RETURNING *`,
         [
           businessId,
@@ -497,6 +497,7 @@ module.exports = function(pool) {
           `Approved pump upload ${id}`,
           asUuidOrNull(reviewed_by) || merged.worker_id || null,
           existing.submitted_at || existing.uploaded_at || null,
+          id,
         ]
       );
       const sale = saleResult.rows[0];
@@ -611,6 +612,14 @@ module.exports = function(pool) {
       res.json({ ...uploadResult.rows[0], badge_allocations: badgeAllocations, approvedSale: sale });
     } catch (err) {
       await client.query('ROLLBACK');
+      // The fuel-sale trigger raises 23514 when badge stock cannot cover the
+      // approved volume. Treat this expected business conflict separately from
+      // an internal server failure so reviewers can correct inventory first.
+      if (err.code === '23514' && /Insufficient petroleum badge stock/i.test(err.message || '')) {
+        return res.status(409).json({
+          error: 'Insufficient petroleum badge stock to approve this upload. Reconcile fuel inventory and try again.',
+        });
+      }
       throw err;
     } finally {
       client.release();

@@ -13,6 +13,10 @@ String petroleumBadgeAllocationSummary(
   for (final raw in rawAllocations) {
     if (raw is! Map) continue;
     final allocation = Map<String, dynamic>.from(raw);
+    if (allocation['legacy_unallocated'] == true) {
+      labels.add('Legacy unallocated · ${allocation['quantity'] ?? 0}');
+      continue;
+    }
     final id = (allocation['badge_id'] ??
             allocation['badgeId'] ??
             allocation['badge_batch_id'] ??

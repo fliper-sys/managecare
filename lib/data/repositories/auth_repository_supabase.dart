@@ -1,4 +1,4 @@
-import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/repositories/auth_repository.dart';
 import '../../services/authentication_service.dart';
@@ -55,7 +55,7 @@ class AuthRepositorySupabase implements AuthRepository {
   }) async {
     try {
       // 1. Sign up with GoTrue
-      final response = await Supabase.instance.client.auth.signUp(
+      final response = await _supabase.auth.signUp(
         email: email,
         password: password,
       );
@@ -65,14 +65,14 @@ class AuthRepositorySupabase implements AuthRepository {
       }
 
       // 2. Create profile
-      await Supabase.instance.client.from('profiles').upsert({
+      await _supabase.from('profiles').upsert({
         'id': response.user!.id,
         'email': email,
         'full_name': name,
       });
 
       // 3. Create business + membership (via RPC)
-      await Supabase.instance.client.rpc('create_business_with_owner', params: {
+      await _supabase.rpc('create_business_with_owner', params: {
         'p_name': businessName,
         'p_business_type': businessType,
         'p_owner_id': response.user!.id,
@@ -98,7 +98,8 @@ class AuthRepositorySupabase implements AuthRepository {
   }
 
   @override
-  Future<void> resetPassword(String email, {String accountType = 'owner'}) async {
+  Future<void> resetPassword(String email,
+      {String accountType = 'owner'}) async {
     try {
       await _authService.requestPasswordReset(
         email: email,
@@ -111,45 +112,81 @@ class AuthRepositorySupabase implements AuthRepository {
 
   @override
   Future<dynamic> getCurrentUser() async {
+    if (_supabase.auth.currentSession == null) return null;
+    final user = _supabase.auth.currentUser;
+    if (user == null) return null;
+
+    Map<String, dynamic>? profile;
     try {
-      final session = Supabase.instance.client.auth.currentSession;
-      if (session == null) return null;
+      final merged = await _supabase.rpc('current_user_profile');
+      if (merged is Map) profile = Map<String, dynamic>.from(merged);
+    } catch (error) {
+      debugPrint('[AuthRepositorySupabase] Merged profile read failed: $error');
+    }
 
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) return null;
+    if (profile == null) {
+      try {
+        profile = await _supabase
+            .from('profiles')
+            .select(
+                'id, email, full_name, phone_number, address, job_title, photo_url, pin, current_business_id, created_at')
+            .eq('id', user.id)
+            .maybeSingle();
+      } catch (error) {
+        debugPrint('[AuthRepositorySupabase] Profile row read failed: $error');
+      }
+    }
 
-      // Fetch profile and memberships
-      final profile = await Supabase.instance.client
-          .from('profiles')
-          .select('id, email, full_name, phone_number, address, job_title, photo_url, pin, current_business_id, created_at')
-          .eq('id', user.id)
-          .maybeSingle();
+    final data = profile ?? <String, dynamic>{};
+    final metadata = user.userMetadata ?? const <String, dynamic>{};
+    final metadataName = [
+      metadata['full_name'],
+      metadata['name'],
+      metadata['display_name'],
+    ].map((value) => value?.toString().trim() ?? '').firstWhere(
+          (value) => value.isNotEmpty,
+          orElse: () => '',
+        );
+    final email = (data['email']?.toString().trim().isNotEmpty == true)
+        ? data['email'].toString().trim()
+        : user.email?.trim() ?? '';
+    final fullName = (data['full_name']?.toString().trim().isNotEmpty == true)
+        ? data['full_name'].toString().trim()
+        : metadataName.isNotEmpty
+            ? metadataName
+            : email.split('@').first;
 
-      if (profile == null) return null;
-
-      final memberships = await Supabase.instance.client
+    List<Map<String, dynamic>> memberships = [];
+    try {
+      final rows = await _supabase
           .from('business_members')
           .select('business_id, role, is_owner, permissions, store_id')
           .eq('user_id', user.id)
           .eq('is_active', true);
-
-      return {
-        'id': profile['id'],
-        'email': profile['email'],
-        'fullName': profile['full_name'],
-        'phoneNumber': profile['phone_number'],
-        'address': profile['address'],
-        'jobTitle': profile['job_title'],
-        'photoUrl': profile['photo_url'],
-        'pin': profile['pin'],
-        'currentBusinessId': profile['current_business_id'],
-        'createdAt': profile['created_at'],
-        'memberships': memberships,
-        'businessIds': memberships.map((m) => m['business_id'] as String).toList(),
-      };
-    } catch (e) {
-      return null;
+      memberships = rows
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList(growable: false);
+    } catch (error) {
+      debugPrint('[AuthRepositorySupabase] Membership read failed: $error');
     }
+
+    return {
+      'id': data['id'] ?? user.id,
+      'email': email,
+      'fullName': fullName,
+      'phoneNumber': data['phone_number'] ?? metadata['phone_number'],
+      'address': data['address'],
+      'jobTitle': data['job_title'],
+      'photoUrl': data['photo_url'] ?? metadata['avatar_url'],
+      'pin': data['pin'],
+      'currentBusinessId': data['current_business_id'],
+      'createdAt': data['created_at'],
+      'memberships': memberships,
+      'businessIds': memberships
+          .map((membership) => membership['business_id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList(growable: false),
+    };
   }
 
   /// Create a user profile in the profiles table.
@@ -203,4 +240,3 @@ class AuthRepositorySupabase implements AuthRepository {
     }
   }
 }
-
