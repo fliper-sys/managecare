@@ -27,6 +27,8 @@ class AppTokens {
     required this.dangerBg,
     required this.info,
     required this.infoBg,
+    required this.glass,
+    required this.cardShadow,
   });
 
   final Brightness brightness;
@@ -56,6 +58,12 @@ class AppTokens {
   final Color info;
   final Color infoBg;
 
+  /// Frosted bar and sheet fill (the demo's glass surfaces).
+  final Color glass;
+
+  /// Soft card shadow. Empty in dark mode, where depth comes from surface steps.
+  final List<BoxShadow> cardShadow;
+
   static const AppTokens light = AppTokens._(
     brightness: Brightness.light,
     page: Color(0xFFF6F8FC),
@@ -75,6 +83,10 @@ class AppTokens {
     dangerBg: Color(0xFFFEF2F2),
     info: Color(0xFF1D4ED8),
     infoBg: Color(0xFFEFF6FF),
+    glass: Color(0xCCFFFFFF),
+    cardShadow: [
+      BoxShadow(color: Color(0x400F172A), blurRadius: 20, spreadRadius: -12, offset: Offset(0, 6)),
+    ],
   );
 
   static const AppTokens dark = AppTokens._(
@@ -96,6 +108,8 @@ class AppTokens {
     dangerBg: Color(0xFF3B1212),
     info: Color(0xFF93C5FD),
     infoBg: Color(0xFF0F2347),
+    glass: Color(0xCC0F172A),
+    cardShadow: <BoxShadow>[],
   );
 
   /// Tokens for the brightness of the nearest Theme.
@@ -113,7 +127,8 @@ class AppTokens {
   // Radii
   static const double rControl = 12;
   static const double rCard = 16;
-  static const double rSheet = 24;
+  static const double rRow = 16;
+  static const double rSheet = 32;
   static const double rHero = 28;
 
   /// A soft background tint of [color], for chips and icon wells on a business

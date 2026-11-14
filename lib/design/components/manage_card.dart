@@ -27,6 +27,7 @@ class ManageCard extends StatelessWidget {
         color: t.surface,
         borderRadius: BorderRadius.circular(AppTokens.rCard),
         border: Border.all(color: t.line),
+        boxShadow: t.cardShadow,
       ),
       child: Padding(padding: padding, child: child),
     );

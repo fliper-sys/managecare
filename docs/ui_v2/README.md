@@ -1,5 +1,7 @@
 # ManageCare UI v2 (branch: `redesign-v2`)
 
+**Design target: the Flagship Tactile-Luxury demo, exactly the same design feel and more. See `design_target.md`. It overrides anything else.**
+
 Long-lived branch for the restructuring in the ManageCare Restructuring Blueprint
 (14 November 2026). The current app on `main` keeps shipping and being fixed
 while this is built.
