@@ -20,12 +20,12 @@ show: every business type, offline use, reduced motion, accessibility, real data
 | Tactile press (0.945 buttons, 0.975 cards) | `TactilePressable`, `ManageCard` | 1 | done |
 | Status chips, skeleton loading, bottom sheet | `StatusChip`, `SkeletonBlock`, `SheetScaffold` | 1 | done (sheet radius 32) |
 | Spring curves, reduce motion | `Motion` | 1 | done |
-| Plus Jakarta Sans, JetBrains Mono, tabular figures, 9 to 11 px micro labels | `AppType` | 1 | added; fonts still to bundle for offline |
-| Studio mesh page background and fine grain overlay | `AmbientBackground` | 2 | todo |
-| Glass surfaces with specular 1 px hairline | `GlassSurface` (BackdropFilter blur 24, gradient border) | 2 | todo |
-| Staggered entrance (42 ms steps, 480 ms) | `StaggerIn` | 2 | todo |
-| Dynamic Island status pill (114x30 to 248x42, 3.3 s) | `StatusIsland` overlay | 2 | todo |
-| Sliding measured pill in the tab bar, raised centre action | `PillTabBar` | 2 | todo |
+| Plus Jakarta Sans, JetBrains Mono, tabular figures, 9 to 11 px micro labels | `AppType` | 2 | done; variable fonts bundled in assets/fonts |
+| Page ground: accent glow and fine grain | `AmbientBackground`, `GrainOverlay` | 2 | done |
+| Glass surfaces with specular 1 px hairline | `GlassSurface` (BackdropFilter blur 24, gradient border, solid fallback) | 2 | done |
+| Staggered entrance (42 ms steps, 480 ms) | `StaggerIn` | 2 | done |
+| Dynamic Island status pill (114x30 to 248x42, 3.3 s) | `StatusIsland` overlay | 2 | done |
+| Sliding pill in the tab bar, raised centre action | `PillTabBar` | 2 | done |
 | Hero card: accent gradient, tilt sheen, odometer digits, self-drawing sparkline | `HeroKpiCard`, `OdometerText`, `SparklineDraw` | 3 | todo |
 | Swipe rows (action at 56 px, clamp 96 px) with a visible button too | `SwipeRow` | 3 | todo |
 | Spotlight search sheet | `SpotlightSheet` | 3 | todo |
@@ -38,3 +38,5 @@ show: every business type, offline use, reduced motion, accessibility, real data
 - Hardware frame, status bar and the physical island in the demo are presentation only. In the app the island pill sits just under the system status bar.
 - Backdrop blur is costly on low-end phones. `GlassSurface` takes a `blur` setting and falls back to a solid `AppTokens.glass` fill when motion is reduced or the device is slow. Measure on the baseline device before shipping.
 - Pointer tilt on the hero card becomes a gyroscope-driven tilt on phones, off when motion is reduced.
+
+- Not yet compared against the demo on a device. `GlassSurface` omits the demo's 180% backdrop saturation; revisit after a side-by-side review.

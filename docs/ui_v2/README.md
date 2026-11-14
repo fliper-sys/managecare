@@ -35,7 +35,8 @@ Wave 1 Retail (pilot) -> gate -> Wave 2 catalogue and cart -> Wave 3 booking and
 ## Status
 - Phase 1 (foundation): `lib/design` tokens, motion and five components; `lib/business_profiles` contract and Retail profile; `lib/shared_features/ui_v2.dart` flag; `tool/check_ui_v2_colors.sh`; tests in `test/ui_v2/`; `docs/ui_v2/retail_baseline.md`.
 - Not yet verified by `flutter analyze` or `flutter test`: run both before building on this.
-- Next: plan journey (shared), then Retail home.
+- Phase 2 (demo-parity primitives): `AmbientBackground`, `GlassSurface`, `StaggerIn`, `StatusIsland`, `PillTabBar`, bundled fonts (pubspec.yaml `fonts:`), tests in `test/ui_v2/phase2_test.dart`.
+- Next: Retail home (hero card, odometer, sparkline, swipe rows), then the shared plan journey.
 
 ## Checks
 ```

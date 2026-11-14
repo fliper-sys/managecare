@@ -19,6 +19,7 @@ class AppTokens {
     required this.inkFaint,
     required this.brand,
     required this.onBrand,
+    required this.onAccent,
     required this.success,
     required this.successBg,
     required this.warning,
@@ -48,6 +49,9 @@ class AppTokens {
   final Color brand;
   final Color onBrand;
 
+  /// Text and icons on a business accent colour (always white, as in the demo).
+  final Color onAccent;
+
   // Status (each foreground is paired with its own background)
   final Color success;
   final Color successBg;
@@ -75,6 +79,7 @@ class AppTokens {
     inkFaint: Color(0xFF64748B),
     brand: Color(0xFF2563EB),
     onBrand: Color(0xFFFFFFFF),
+    onAccent: Color(0xFFFFFFFF),
     success: Color(0xFF047857),
     successBg: Color(0xFFECFDF5),
     warning: Color(0xFFB45309),
@@ -100,6 +105,7 @@ class AppTokens {
     inkFaint: Color(0xFF8191A8),
     brand: Color(0xFF60A5FA),
     onBrand: Color(0xFF0B1220),
+    onAccent: Color(0xFFFFFFFF),
     success: Color(0xFF34D399),
     successBg: Color(0xFF052E26),
     warning: Color(0xFFFBBF24),
@@ -130,6 +136,10 @@ class AppTokens {
   static const double rRow = 16;
   static const double rSheet = 32;
   static const double rHero = 28;
+
+  /// A darker shade of [color], for the end of an accent gradient.
+  static Color deepen(Color color, [double amount = 0.45]) =>
+      Color.lerp(color, const Color(0xFF020617), amount)!;
 
   /// A soft background tint of [color], for chips and icon wells on a business
   /// accent.

@@ -136,12 +136,14 @@ flutter:
     - assets/
     - assets/fonts/NotoSans-Regular.ttf
 
-  # fonts:
-  #   - family: CustomFont
-  #     fonts:
-  #       - asset: assets/fonts/CustomFont-Regular.ttf
-  #       - asset: assets/fonts/CustomFont-Bold.ttf
-  #         weight: 700
+  # UI v2 fonts (variable, SIL OFL; licences next to the files)
+  fonts:
+    - family: PlusJakartaSans
+      fonts:
+        - asset: assets/fonts/PlusJakartaSans-Variable.ttf
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono-Variable.ttf
 
 flutter_native_splash:
   color: "#000000"
