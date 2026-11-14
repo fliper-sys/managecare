@@ -110,7 +110,7 @@ void main() {
     final after = tester.widget<AnimatedPositioned>(find.byType(AnimatedPositioned)).left!;
     expect(after, greaterThan(before));
 
-    await tester.tap(find.bySemanticsLabel('New sale'));
+    await tester.tap(find.byIcon(Icons.add));
     await tester.pump(const Duration(milliseconds: 300));
     expect(centre, 1);
     expect(tester.takeException(), isNull);

@@ -26,10 +26,11 @@ show: every business type, offline use, reduced motion, accessibility, real data
 | Staggered entrance (42 ms steps, 480 ms) | `StaggerIn` | 2 | done |
 | Dynamic Island status pill (114x30 to 248x42, 3.3 s) | `StatusIsland` overlay | 2 | done |
 | Sliding pill in the tab bar, raised centre action | `PillTabBar` | 2 | done |
-| Hero card: accent gradient, tilt sheen, odometer digits, self-drawing sparkline | `HeroKpiCard`, `OdometerText`, `SparklineDraw` | 3 | todo |
-| Swipe rows (action at 56 px, clamp 96 px) with a visible button too | `SwipeRow` | 3 | todo |
+| Hero card: accent gradient, tilt sheen, counting figure, self-drawing sparkline | `HeroKpiCard`, `HoloTilt`, `OdometerText`, `SparklineDraw` | 3 | done (pointer tilt; gyroscope tilt not yet) |
+| Swipe rows (action at 56 px, clamp 96 px) with a visible button too | `SwipeRow` | 3 | done |
 | Spotlight search sheet | `SpotlightSheet` | 3 | todo |
-| Plan card with ring, usage bars, tier cards, confirm sheet | `plan_journey/` | 3 | todo |
+| Plan card with ring and usage line | `PlanSummaryCard` | 3 | done; tier cards and confirm sheet still todo (`plan_journey/`) |
+| Quick actions row, Retail home screen | `QuickActionsGrid`, `RetailHomeView` | 3 | done (view); connector to providers todo (3b) |
 | Cart steppers with pop, payment chips, perforated thermal receipt, drawn tick | `CatalogueCart`, `CheckoutSheet`, `ReceiptPaper`, `CheckDraw` | 4 | todo |
 | Reports: period pills, payment split bars, top items | `reports/` | 4 | todo |
 | Per-business accent, wording and work feed | `BusinessProfile` | 1 onward | contract done, Retail profile done |
