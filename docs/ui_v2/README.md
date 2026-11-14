@@ -37,6 +37,7 @@ Wave 1 Retail (pilot) -> gate -> Wave 2 catalogue and cart -> Wave 3 booking and
 - Not yet verified by `flutter analyze` or `flutter test`: run both before building on this.
 - Phase 2 (demo-parity primitives): `AmbientBackground`, `GlassSurface`, `StaggerIn`, `StatusIsland`, `PillTabBar`, bundled fonts (pubspec.yaml `fonts:`), tests in `test/ui_v2/phase2_test.dart`.
 - Phase 3 (Retail home view): `HeroKpiCard`, `HoloTilt`, `OdometerText`, `SparklineDraw`, `SwipeRow`, `QuickActionsGrid`, `PlanSummaryCard`, `lib/features/retail/home/` (view and data, no provider access), `test/ui_v2/phase3_test.dart`.
+- Phase 3c (multi-business): session phases, per-business profile states, `TenantScope`, v2 switcher sheet, `SessionGate` with skeletons, provider adapter, `test/ui_v2/session_test.dart`. See `multitenant.md`.
 - Next (3b): connector that fills `RetailHomeData` from the existing providers and the flagged route; then the shared plan journey (tier cards, confirm sheet).
 
 ## Checks
