@@ -29,3 +29,15 @@ Turning it off returns that business to the old screens.
 ## Order of work
 Wave 1 Retail (pilot) -> gate -> Wave 2 catalogue and cart -> Wave 3 booking and schedule
 -> Wave 4 rooms and tables -> Wave 5 Administrative Services and Real Estate.
+
+## Status
+- Phase 1 (foundation): `lib/design` tokens, motion and five components; `lib/business_profiles` contract and Retail profile; `lib/shared_features/ui_v2.dart` flag; `tool/check_ui_v2_colors.sh`; tests in `test/ui_v2/`; `docs/ui_v2/retail_baseline.md`.
+- Not yet verified by `flutter analyze` or `flutter test`: run both before building on this.
+- Next: plan journey (shared), then Retail home.
+
+## Checks
+```
+./tool/check_ui_v2_colors.sh
+flutter analyze lib/design lib/business_profiles lib/shared_features test/ui_v2
+flutter test test/ui_v2
+```
