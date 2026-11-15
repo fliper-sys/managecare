@@ -99,6 +99,8 @@ import '../presentation/industry_specific/retail/screens/product_management_scre
 import '../presentation/industry_specific/retail/screens/add_product_screen.dart';
 import '../presentation/industry_specific/retail/screens/add_supplier_screen.dart';
 import '../presentation/industry_specific/retail/screens/retail_dashboard.dart';
+import '../features/retail/home/retail_home_screen.dart';
+import '../shared_features/ui_v2.dart';
 import '../presentation/industry_specific/retail/screens/store_reports_screen.dart';
 import '../presentation/industry_specific/wholesale/screens/warehouse_dashboard_screen.dart';
 import '../presentation/industry_specific/wholesale/screens/warehouses_screen.dart';
@@ -685,7 +687,10 @@ class AppRouter {
 
       // Industry Specific Routes - Retail
       case Routes.retailDashboard:
-        return _buildRoute(const RetailDashboard());
+        // v2 only when flagged (UI_V2) and migrated; otherwise unchanged.
+        return _buildRoute(UiV2.enabledFor('retail')
+            ? const RetailHomeScreen()
+            : const RetailDashboard());
 
       case Routes.bakeryDashboard:
         return _buildRoute(const RetailDashboard.bakery());
