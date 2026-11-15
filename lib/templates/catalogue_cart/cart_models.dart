@@ -71,6 +71,7 @@ class CartState extends ChangeNotifier {
 
   final Map<String, CartLine> _lines = {};
   final Map<String, double> _overrides = {};
+  final Map<String, PriceMode> _lineModes = {};
   PriceMode _mode = PriceMode.retail;
   double _discount = 0;
   double _taxPercent;
@@ -105,7 +106,8 @@ class CartState extends ChangeNotifier {
   }
 
   CartLine _line(CatalogueItem i, int qty) {
-    final m = (_mode == PriceMode.wholesale && i.hasWholesale) ? PriceMode.wholesale : PriceMode.retail;
+    final wanted = _lineModes[i.id] ?? _mode;
+    final m = (wanted == PriceMode.wholesale && i.hasWholesale) ? PriceMode.wholesale : PriceMode.retail;
     return CartLine(i, qty, unitPrice: _priceFor(i, m), mode: m, overridden: _overrides.containsKey(i.id));
   }
 
@@ -124,6 +126,7 @@ class CartState extends ChangeNotifier {
     if (l.qty <= 1) {
       _lines.remove(id);
       _overrides.remove(id);
+      _lineModes.remove(id);
     } else {
       _lines[id] = _line(l.item, l.qty - 1);
     }
@@ -134,6 +137,7 @@ class CartState extends ChangeNotifier {
   void remove(String id) {
     if (_lines.remove(id) != null) {
       _overrides.remove(id);
+      _lineModes.remove(id);
       _fixDiscount();
       notifyListeners();
     }
@@ -142,12 +146,24 @@ class CartState extends ChangeNotifier {
   /// Switches the whole cart between retail and wholesale list prices. Items
   /// without a wholesale price stay at retail. Manual overrides are kept.
   void setMode(PriceMode mode) {
-    if (mode == _mode) return;
+    if (mode == _mode && _lineModes.isEmpty) return;
     _mode = mode;
+    _lineModes.clear();
     for (final id in _lines.keys.toList()) {
       final l = _lines[id]!;
       _lines[id] = _line(l.item, l.qty);
     }
+    _fixDiscount();
+    notifyListeners();
+  }
+
+  /// Sets retail or wholesale for one line only. Ignored when the item has no
+  /// wholesale price. A manual price on the line is kept.
+  void setLineMode(String id, PriceMode mode) {
+    final l = _lines[id];
+    if (l == null || !l.item.hasWholesale) return;
+    _lineModes[id] = mode;
+    _lines[id] = _line(l.item, l.qty);
     _fixDiscount();
     notifyListeners();
   }
@@ -157,7 +173,7 @@ class CartState extends ChangeNotifier {
   void setOverride(String id, double? price) {
     final l = _lines[id];
     if (l == null) return;
-    final list = (_mode == PriceMode.wholesale && l.item.hasWholesale) ? l.item.wholesalePrice! : l.item.price;
+    final list = (l.mode == PriceMode.wholesale && l.item.hasWholesale) ? l.item.wholesalePrice! : l.item.price;
     if (price == null || price < 0 || (price - list).abs() < 0.0001) {
       _overrides.remove(id);
     } else {
@@ -181,9 +197,69 @@ class CartState extends ChangeNotifier {
   void clear() {
     _lines.clear();
     _overrides.clear();
+    _lineModes.clear();
     _discount = 0;
     _mode = PriceMode.retail;
     notifyListeners();
+  }
+
+  /// Plain data for saving. Items are stored by id only; prices are not saved
+  /// so a restored cart always uses today's catalogue prices.
+  Map<String, Object?> toJson() => {
+        'mode': _mode.name,
+        'discount': _discount,
+        'lines': {for (final l in _lines.values) l.item.id: l.qty},
+        'overrides': Map<String, double>.from(_overrides),
+        'lineModes': {for (final e in _lineModes.entries) e.key: e.value.name},
+      };
+
+  /// Rebuilds the cart from [toJson] output. Items that no longer exist are
+  /// skipped and quantities are capped to current stock. Returns how many
+  /// lines were dropped or reduced so the screen can say so.
+  int restoreFrom(Map<String, Object?> json, Map<String, CatalogueItem> catalogue) {
+    _lines.clear();
+    _overrides.clear();
+    _lineModes.clear();
+    _mode = json['mode'] == 'wholesale' ? PriceMode.wholesale : PriceMode.retail;
+    var changed = 0;
+
+    final overrides = json['overrides'];
+    if (overrides is Map) {
+      overrides.forEach((k, v) {
+        if (v is num && v >= 0) _overrides[k.toString()] = v.toDouble();
+      });
+    }
+    final modes = json['lineModes'];
+    if (modes is Map) {
+      modes.forEach((k, v) => _lineModes[k.toString()] = v == 'wholesale' ? PriceMode.wholesale : PriceMode.retail);
+    }
+    final lines = json['lines'];
+    if (lines is Map) {
+      lines.forEach((k, v) {
+        final item = catalogue[k.toString()];
+        final want = v is num ? v.toInt() : 0;
+        if (item == null || want <= 0) {
+          changed++;
+          return;
+        }
+        final qty = want > item.stock ? item.stock.floor() : want;
+        if (qty <= 0) {
+          changed++;
+          return;
+        }
+        if (qty < want) changed++;
+        _lines[item.id] = _line(item, qty);
+      });
+    }
+    _overrides.removeWhere((id, _) => !_lines.containsKey(id));
+    _lineModes.removeWhere((id, _) => !_lines.containsKey(id));
+    for (final id in _lines.keys.toList()) {
+      _lines[id] = _line(_lines[id]!.item, _lines[id]!.qty);
+    }
+    final d = json['discount'];
+    _discount = d is num ? d.toDouble().clamp(0, subtotal).toDouble() : 0;
+    notifyListeners();
+    return changed;
   }
 
   void _fixDiscount() {
@@ -195,7 +271,14 @@ class CartState extends ChangeNotifier {
 /// Always has at least one cart.
 class CartSessions extends ChangeNotifier {
   CartSessions({this.taxPercent = 0}) {
-    _carts.add(_Named('Cart 1', CartState(taxPercent: taxPercent)));
+    _add(_Named('Cart 1', CartState(taxPercent: taxPercent)));
+  }
+
+  /// Child carts notify this object too, so the cart strip and saving see
+  /// every change.
+  void _add(_Named n) {
+    n.cart.addListener(notifyListeners);
+    _carts.add(n);
   }
 
   final double taxPercent;
@@ -211,7 +294,7 @@ class CartSessions extends ChangeNotifier {
 
   void create() {
     _counter++;
-    _carts.add(_Named('Cart $_counter', CartState(taxPercent: taxPercent)));
+    _add(_Named('Cart $_counter', CartState(taxPercent: taxPercent)));
     _active = _carts.length - 1;
     notifyListeners();
   }
@@ -225,15 +308,54 @@ class CartSessions extends ChangeNotifier {
   /// Closes a cart. The last one cannot be closed, only emptied.
   void close(int i) {
     if (_carts.length <= 1 || i < 0 || i >= _carts.length) return;
-    _carts.removeAt(i).cart.dispose();
+    final gone = _carts.removeAt(i);
+    gone.cart.removeListener(notifyListeners);
+    gone.cart.dispose();
     if (_active >= _carts.length) _active = _carts.length - 1;
     if (i < _active) _active--;
     notifyListeners();
   }
 
+  bool get allEmpty => _carts.every((c) => c.cart.isEmpty);
+
+  Map<String, Object?> toJson() => {
+        'active': _active,
+        'counter': _counter,
+        'carts': [
+          for (final c in _carts) {'label': c.label, 'cart': c.cart.toJson()},
+        ],
+      };
+
+  /// Restores saved carts. Returns the number of lines dropped or reduced.
+  int restoreFrom(Map<String, Object?> json, Map<String, CatalogueItem> catalogue) {
+    final saved = json['carts'];
+    if (saved is! List || saved.isEmpty) return 0;
+    for (final c in _carts) {
+      c.cart.removeListener(notifyListeners);
+      c.cart.dispose();
+    }
+    _carts.clear();
+    var changed = 0;
+    for (final entry in saved) {
+      if (entry is! Map) continue;
+      final cart = CartState(taxPercent: taxPercent);
+      final data = entry['cart'];
+      if (data is Map) changed += cart.restoreFrom(Map<String, Object?>.from(data), catalogue);
+      _add(_Named(entry['label']?.toString() ?? 'Cart', cart));
+    }
+    if (_carts.isEmpty) _add(_Named('Cart 1', CartState(taxPercent: taxPercent)));
+    final a = json['active'];
+    _active = a is int && a >= 0 && a < _carts.length ? a : 0;
+    final n = json['counter'];
+    _counter = n is int && n >= _carts.length ? n : _carts.length;
+    notifyListeners();
+    return changed;
+  }
+
   @override
   void dispose() {
     for (final c in _carts) {
+      c.cart.removeListener(notifyListeners);
       c.cart.dispose();
     }
     super.dispose();
@@ -246,10 +368,23 @@ class _Named {
   final CartState cart;
 }
 
+/// A saved customer the cashier can attach to a sale.
+@immutable
+class CustomerOption {
+  const CustomerOption({required this.id, required this.name, this.phone, this.email});
+  final String id;
+  final String name;
+  final String? phone;
+  final String? email;
+}
+
 /// What the cashier chose in the checkout sheet.
 @immutable
 class CheckoutInput {
-  const CheckoutInput({required this.method, this.customer, this.splits = const [], this.storeId});
+  const CheckoutInput({required this.method, this.customer, this.splits = const [], this.storeId, this.customerRef});
+
+  /// Set when a saved customer was picked; [customer] then holds their name.
+  final CustomerOption? customerRef;
 
   /// [PayMethod] for a single payment; null when the payment is split.
   final PayMethod? method;

@@ -124,6 +124,125 @@ void main() {
     });
   });
 
+
+  group('per-line mode', () {
+    test('one line can be wholesale while the cart stays retail', () {
+      final c = CartState()..add(_flour)..add(_flour);
+      final other = const CatalogueItem(id: 'x', name: 'Sugar', price: 1000, wholesalePrice: 900, stock: 50);
+      c.add(other);
+      c.setLineMode('f', PriceMode.wholesale);
+      expect(c.mode, PriceMode.retail);
+      expect(c.lineOf('f')!.unitPrice, 18500);
+      expect(c.lineOf('x')!.unitPrice, 1000);
+      c.add(_flour); // a later unit keeps the line's mode
+      expect(c.lineOf('f')!.unitPrice, 18500);
+    });
+
+    test('items without a wholesale price ignore the line toggle; cart mode resets lines', () {
+      final c = CartState()..add(_oil)..add(_flour);
+      c.setLineMode('o', PriceMode.wholesale);
+      expect(c.lineOf('o')!.mode, PriceMode.retail);
+      c.setLineMode('f', PriceMode.wholesale);
+      c.setMode(PriceMode.retail);
+      expect(c.lineOf('f')!.unitPrice, 20000);
+    });
+  });
+
+  group('saving and restoring carts', () {
+    final catalogue = {for (final i in [_rice, _oil, _flour]) i.id: i};
+
+    test('round trip keeps lines, custom prices, modes, discount, labels and active cart', () {
+      final s = CartSessions(taxPercent: 7.5);
+      s.active..add(_flour)..add(_flour)..setOverride('f', 19000)..setDiscount(500);
+      s.create();
+      s.active..add(_oil)..setLineMode('o', PriceMode.retail);
+      final json = Map<String, Object?>.from(s.toJson());
+
+      final back = CartSessions(taxPercent: 7.5);
+      final changed = back.restoreFrom(json, catalogue);
+      expect(changed, 0);
+      expect(back.length, 2);
+      expect(back.activeIndex, 1);
+      expect(back.labelAt(1), 'Cart 2');
+      expect(back.active.qtyOf('o'), 1);
+      back.switchTo(0);
+      expect(back.active.qtyOf('f'), 2);
+      expect(back.active.lineOf('f')!.unitPrice, 19000);
+      expect(back.active.discount, 500);
+    });
+
+    test('items that vanished or lost stock are dropped or reduced and counted', () {
+      final s = CartSessions();
+      s.active..add(_rice)..add(_rice)..add(_rice)..add(_oil);
+      final json = Map<String, Object?>.from(s.toJson());
+      final shrunk = {
+        'r': const CatalogueItem(id: 'r', name: 'Rice 50kg', price: 45000, stock: 1),
+        // oil is gone
+      };
+      final back = CartSessions();
+      expect(back.restoreFrom(json, shrunk), 2);
+      expect(back.active.qtyOf('r'), 1);
+      expect(back.active.qtyOf('o'), 0);
+    });
+
+    test('restored cart uses today\'s catalogue price, not the old one', () {
+      final s = CartSessions();
+      s.active.add(_oil);
+      final json = Map<String, Object?>.from(s.toJson());
+      final dearer = {'o': const CatalogueItem(id: 'o', name: 'Palm oil', price: 3000, stock: 40)};
+      final back = CartSessions()..restoreFrom(json, dearer);
+      expect(back.active.subtotal, 3000);
+    });
+
+    test('garbage json restores nothing and does not throw', () {
+      final back = CartSessions();
+      expect(back.restoreFrom({'carts': 'nope'}, catalogue), 0);
+      expect(back.length, 1);
+    });
+
+    test('child cart changes notify the sessions object', () {
+      final s = CartSessions();
+      var n = 0;
+      s.addListener(() => n++);
+      s.active.add(_oil);
+      expect(n, 1);
+      expect(s.countAt(0), 1);
+    });
+
+    test('persistence saves after a change and restores into a fresh session', () async {
+      final store = MemoryCartStore();
+      final s = CartSessions();
+      final p = CartPersistence(s, store, delay: Duration.zero);
+      s.active.add(_oil);
+      await p.flush();
+      expect(store.value, isNotNull);
+      p.dispose();
+
+      final s2 = CartSessions();
+      final p2 = CartPersistence(s2, store, delay: Duration.zero);
+      expect(await p2.restore(catalogue), 0);
+      expect(s2.active.qtyOf('o'), 1);
+      p2.dispose();
+    });
+
+    test('an emptied cart clears the saved copy; a started cart is not overwritten', () async {
+      final store = MemoryCartStore();
+      final s = CartSessions();
+      final p = CartPersistence(s, store, delay: Duration.zero);
+      s.active.add(_oil);
+      await p.flush();
+      s.active.clear();
+      await p.flush();
+      expect(store.value, isNull);
+
+      store.value = '{"carts":[{"label":"Old","cart":{"lines":{"o":1}}}],"active":0,"counter":1}';
+      s.active.add(_rice);
+      expect(await p.restore(catalogue), -1); // cashier already started
+      expect(s.active.qtyOf('r'), 1);
+      p.dispose();
+    });
+  });
+
   group('CartSessions', () {
     test('create, switch, close keep carts separate', () {
       final s = CartSessions();
@@ -339,6 +458,47 @@ void main() {
       await tester.tap(find.text('Complete sale'));
       await tester.pumpAndSettle();
       expect(store, 's2');
+    });
+
+    testWidgets('picking a saved customer sends their id and name', (tester) async {
+      final c = CartState()..add(_oil);
+      CheckoutInput? got;
+      await tester.pumpWidget(_app(SingleChildScrollView(
+        child: CheckoutSheet(
+          cart: c, terms: _terms, accent: Colors.teal,
+          customers: const [
+            CustomerOption(id: 'c1', name: 'Mama Ngozi', phone: '0803'),
+            CustomerOption(id: 'c2', name: 'Chidi', phone: '0701'),
+          ],
+          onComplete: (i) async {
+            got = i;
+            return receipt(c, i.method);
+          },
+        ),
+      ), reduce: true));
+      expect(find.text('Walk-in'), findsOneWidget);
+      await tester.tap(find.text('Walk-in'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'chi');
+      await tester.pump();
+      expect(find.text('Mama Ngozi'), findsNothing);
+      await tester.tap(find.text('Chidi'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Complete sale'));
+      await tester.pumpAndSettle();
+      expect(got!.customerRef?.id, 'c2');
+      expect(got!.customer, 'Chidi');
+    });
+
+    testWidgets('line mode chips change the price in the review', (tester) async {
+      final c = CartState()..add(_flour);
+      await tester.pumpWidget(_app(SingleChildScrollView(
+        child: CheckoutSheet(cart: c, terms: _terms, accent: Colors.teal, onComplete: (i) async => receipt(c, i.method)),
+      ), reduce: true));
+      await tester.tap(find.text('Wholesale'));
+      await tester.pump();
+      expect(c.lineOf('f')!.unitPrice, 18500);
+      expect(find.textContaining('₦18,500'), findsWidgets);
     });
   });
 }

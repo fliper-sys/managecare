@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../business_profiles/business_profiles.dart';
 import '../../../core/utils/receipt_utility.dart';
@@ -8,6 +9,7 @@ import '../../../design/app_tokens.dart';
 import '../../../design/app_type.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
+import '../../../providers/customer_provider.dart';
 import '../../../providers/retail_provider.dart';
 import '../../../shared_features/session/tenant_scope.dart';
 import '../../../templates/catalogue_cart/catalogue_cart.dart';
@@ -28,6 +30,27 @@ class RetailPosScreen extends StatelessWidget {
   }
 }
 
+/// Saves the open carts in SharedPreferences under a key of their own, so
+/// the old provider's cart cache is never touched.
+class _PrefsCartStore implements CartStore {
+  _PrefsCartStore(this.businessId);
+  final String businessId;
+  String get _key => 'ui_v2_pos_carts_$businessId';
+
+  @override
+  Future<String?> read() async => (await SharedPreferences.getInstance()).getString(_key);
+
+  @override
+  Future<void> write(String? value) async {
+    final p = await SharedPreferences.getInstance();
+    if (value == null) {
+      await p.remove(_key);
+    } else {
+      await p.setString(_key, value);
+    }
+  }
+}
+
 class _PosBody extends StatefulWidget {
   const _PosBody();
   @override
@@ -37,6 +60,9 @@ class _PosBody extends StatefulWidget {
 class _PosBodyState extends State<_PosBody> {
   late final CartSessions _sessions = CartSessions(taxPercent: _taxPercent());
 
+  CartPersistence? _persistence;
+  bool _restored = false;
+
   double _taxPercent() => context.read<BusinessProvider>().currentBusiness?.taxRate ?? 0;
 
   @override
@@ -44,12 +70,30 @@ class _PosBodyState extends State<_PosBody> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final id = context.read<BusinessProvider>().currentBusiness?.id;
-      if (id != null) context.read<RetailProvider>().initialize(id);
+      if (id == null) return;
+      context.read<RetailProvider>().initialize(id);
+      _persistence = CartPersistence(_sessions, _PrefsCartStore(id));
+      final customers = context.read<CustomerProvider>();
+      if (customers.customers.isEmpty) customers.loadCustomers();
     });
+  }
+
+  /// Once the catalogue has loaded, bring back carts saved last time.
+  Future<void> _restoreOnce(List<CatalogueItem> items) async {
+    final p = _persistence;
+    if (_restored || p == null || items.isEmpty) return;
+    _restored = true;
+    final changed = await p.restore({for (final i in items) i.id: i});
+    if (!mounted || changed <= 0) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text('Carts restored. $changed ${changed == 1 ? 'item was' : 'items were'} removed or reduced because stock changed.')));
   }
 
   @override
   void dispose() {
+    _persistence?.flush();
+    _persistence?.dispose();
     _sessions.dispose();
     super.dispose();
   }
@@ -107,12 +151,24 @@ class _PosBodyState extends State<_PosBody> {
         priceOverrides: overrides.isEmpty ? null : overrides,
         storeId: input.storeId,
         customerName: input.customer,
+        customerId: input.customerRef?.id,
+        customerEmail: input.customerRef?.email,
         workerId: auth.currentUser?.id,
         workerName: auth.currentUser?.name,
       );
     } catch (_) {
       retail.clearCart();
       rethrow;
+    }
+    // Same follow-up as the old POS: update the customer's totals once the
+    // sale has uploaded. A queued sale updates them when it syncs.
+    final ref = input.customerRef;
+    if (!queued && ref != null && mounted) {
+      try {
+        await context.read<CustomerProvider>().updateCustomerAfterPurchase(ref.id, total);
+      } catch (_) {
+        // The sale is recorded; the customer summary can catch up later.
+      }
     }
     return SaleReceipt(
       reference: ReceiptUtility.generateReferenceId(business?.name),
@@ -221,6 +277,9 @@ class _PosBodyState extends State<_PosBody> {
     final t = AppTokens.of(context);
     final retail = context.watch<RetailProvider>();
     final profile = BusinessProfiles.forType('retail')!;
+    final items = _items(retail);
+    final customers = context.watch<CustomerProvider>().customers;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _restoreOnce(items));
 
     return Scaffold(
       body: AmbientBackground(
@@ -244,7 +303,7 @@ class _PosBodyState extends State<_PosBody> {
                 builder: (context, _) => CatalogueCartView(
                 key: ValueKey(_sessions.activeIndex),
                 sessions: _sessions,
-                items: _items(retail),
+                items: items,
                 cart: _sessions.active,
                 terms: profile.terms,
                 accent: profile.accent,
@@ -261,6 +320,7 @@ class _PosBodyState extends State<_PosBody> {
                     accent: profile.accent,
                     methods: const [PayMethod.cash, PayMethod.transfer, PayMethod.card],
                     stores: [for (final s in retail.stores) StoreOption(s.id, s.name)],
+                    customers: [for (final c in customers) CustomerOption(id: c.id, name: c.name, phone: c.phone, email: c.email)],
                     onComplete: (input) => _complete(cart, input),
                   );
                 },

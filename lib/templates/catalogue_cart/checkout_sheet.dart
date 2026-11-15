@@ -27,6 +27,7 @@ Future<void> showCheckoutSheet(
   List<StoreOption> stores = const [],
   String? initialStoreId,
   bool allowSplit = true,
+  List<CustomerOption> customers = const [],
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -42,6 +43,7 @@ Future<void> showCheckoutSheet(
       stores: stores,
       initialStoreId: initialStoreId,
       allowSplit: allowSplit,
+      customers: customers,
     ),
   );
 }
@@ -59,8 +61,10 @@ class CheckoutSheet extends StatefulWidget {
     this.stores = const [],
     this.initialStoreId,
     this.allowSplit = true,
+    this.customers = const [],
   });
 
+  final List<CustomerOption> customers;
   final CartState cart;
   final Terms terms;
   final Color accent;
@@ -80,6 +84,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
   bool _split = false;
   late String? _storeId = widget.initialStoreId ?? (widget.stores.isEmpty ? null : widget.stores.first.id);
   SaleReceipt? _receipt;
+  CustomerOption? _picked;
   final _customer = TextEditingController();
   final _discount = TextEditingController();
   final _cash = TextEditingController();
@@ -118,7 +123,8 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
       final name = _customer.text.trim();
       final r = await widget.onComplete(CheckoutInput(
         method: _split ? null : _method,
-        customer: name.isEmpty ? null : name,
+        customer: _picked?.name ?? (name.isEmpty ? null : name),
+        customerRef: _picked,
         splits: _split ? _splits : const [],
         storeId: _storeId,
       ));
@@ -130,6 +136,19 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
       });
     } catch (_) {
       if (mounted) setState(() => _phase = _Phase.failed);
+    }
+  }
+
+  Future<void> _pickCustomer() async {
+    final chosen = await showManageSheet<Object>(
+      context,
+      title: widget.terms.customer,
+      builder: (ctx) => _CustomerList(customers: widget.customers, accent: widget.accent, walkIn: widget.terms.walkIn),
+    );
+    if (chosen is CustomerOption) {
+      setState(() => _picked = chosen);
+    } else if (chosen == 'walkin') {
+      setState(() => _picked = null);
     }
   }
 
@@ -224,7 +243,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
       ListenableBuilder(
         listenable: widget.cart,
         builder: (_, __) => Column(children: [
-          for (final l in widget.cart.lines)
+          for (final l in widget.cart.lines) ...[
             TactilePressable(
               onTap: busy ? null : () => _editPrice(l),
               semanticLabel: 'Edit price of ${l.item.name}',
@@ -245,6 +264,16 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                 ]),
               ),
             ),
+            if (l.item.hasWholesale)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(spacing: AppTokens.s8, children: [
+                  for (final m in PriceMode.values)
+                    _chip(t, m == PriceMode.retail ? 'Retail' : 'Wholesale', l.mode == m,
+                        busy ? null : () => widget.cart.setLineMode(l.item.id, m)),
+                ]),
+              ),
+          ],
           Divider(color: t.line),
           _line(t, 'Subtotal', formatNairaPrecise(widget.cart.subtotal)),
           if (widget.cart.taxPercent > 0) _line(t, 'Tax ${widget.cart.taxPercent.toStringAsFixed(widget.cart.taxPercent % 1 == 0 ? 0 : 1)}%', formatNairaPrecise(widget.cart.taxAmount)),
@@ -294,18 +323,44 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
         ),
       ],
       const SizedBox(height: AppTokens.s12),
-      TextField(
-        controller: _customer,
-        enabled: !busy,
-        style: AppType.sans(size: 14, color: t.ink),
-        decoration: InputDecoration(
-          hintText: '${widget.terms.customer} (optional), default ${widget.terms.walkIn}',
-          hintStyle: AppType.sans(size: 14, color: t.inkFaint),
-          filled: true,
-          fillColor: t.raised,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTokens.rControl), borderSide: BorderSide(color: t.line)),
+      if (widget.customers.isNotEmpty) ...[
+        TactilePressable(
+          onTap: busy ? null : _pickCustomer,
+          semanticLabel: 'Choose ${widget.terms.customer.toLowerCase()}',
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 52),
+            padding: const EdgeInsets.symmetric(horizontal: AppTokens.s12),
+            decoration: BoxDecoration(
+              color: t.raised,
+              borderRadius: BorderRadius.circular(AppTokens.rControl),
+              border: Border.all(color: _picked == null ? t.line : widget.accent),
+            ),
+            child: Row(children: [
+              Icon(Icons.person_outline_rounded, size: 20, color: t.inkMuted),
+              const SizedBox(width: AppTokens.s8),
+              Expanded(
+                child: Text(_picked?.name ?? widget.terms.walkIn,
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: AppType.sans(size: 14, weight: FontWeight.w600, color: t.ink)),
+              ),
+              Icon(Icons.chevron_right_rounded, color: t.inkMuted),
+            ]),
+          ),
         ),
-      ),
+        const SizedBox(height: AppTokens.s8),
+      ],
+      if (_picked == null)
+        TextField(
+          controller: _customer,
+          enabled: !busy,
+          style: AppType.sans(size: 14, color: t.ink),
+          decoration: InputDecoration(
+            hintText: '${widget.terms.customer} name (optional), default ${widget.terms.walkIn}',
+            hintStyle: AppType.sans(size: 14, color: t.inkFaint),
+            filled: true,
+            fillColor: t.raised,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTokens.rControl), borderSide: BorderSide(color: t.line)),
+          ),
+        ),
       if (_phase == _Phase.failed) ...[
         const SizedBox(height: AppTokens.s12),
         Container(
@@ -354,6 +409,82 @@ class _Primary extends StatelessWidget {
           child: Text(label, style: AppType.sans(size: 15, weight: FontWeight.w800, color: t.onAccent)),
         ),
       ),
+    );
+  }
+}
+
+class _CustomerList extends StatefulWidget {
+  const _CustomerList({required this.customers, required this.accent, required this.walkIn});
+  final List<CustomerOption> customers;
+  final Color accent;
+  final String walkIn;
+
+  @override
+  State<_CustomerList> createState() => _CustomerListState();
+}
+
+class _CustomerListState extends State<_CustomerList> {
+  String _q = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    final q = _q.trim().toLowerCase();
+    final shown = [
+      for (final c in widget.customers)
+        if (q.isEmpty || c.name.toLowerCase().contains(q) || (c.phone ?? '').contains(q)) c,
+    ];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(AppTokens.s16, AppTokens.s8, AppTokens.s16, AppTokens.s16),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        TextField(
+          onChanged: (v) => setState(() => _q = v),
+          style: AppType.sans(size: 15, color: t.ink),
+          decoration: InputDecoration(
+            hintText: 'Search name or phone',
+            prefixIcon: Icon(Icons.search_rounded, color: t.inkMuted),
+            filled: true,
+            fillColor: t.raised,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTokens.rControl), borderSide: BorderSide(color: t.line)),
+          ),
+        ),
+        const SizedBox(height: AppTokens.s8),
+        TactilePressable(
+          onTap: () => Navigator.of(context).pop('walkin'),
+          semanticLabel: widget.walkIn,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 52),
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.symmetric(horizontal: AppTokens.s12),
+            child: Text(widget.walkIn, style: AppType.sans(size: 15, weight: FontWeight.w700, color: t.ink)),
+          ),
+        ),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 320),
+          child: shown.isEmpty
+              ? Padding(
+                  padding: const EdgeInsets.all(AppTokens.s16),
+                  child: Text('No match', textAlign: TextAlign.center, style: AppType.sans(size: 13, color: t.inkMuted)),
+                )
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: shown.length,
+                  itemBuilder: (_, i) => TactilePressable(
+                    onTap: () => Navigator.of(context).pop(shown[i]),
+                    semanticLabel: shown[i].name,
+                    child: Container(
+                      constraints: const BoxConstraints(minHeight: 56),
+                      padding: const EdgeInsets.symmetric(horizontal: AppTokens.s12, vertical: AppTokens.s8),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+                        Text(shown[i].name, style: AppType.sans(size: 15, weight: FontWeight.w700, color: t.ink)),
+                        if ((shown[i].phone ?? '').isNotEmpty)
+                          Text(shown[i].phone!, style: AppType.mono(size: 12, weight: FontWeight.w500, color: t.inkMuted)),
+                      ]),
+                    ),
+                  ),
+                ),
+        ),
+      ]),
     );
   }
 }
