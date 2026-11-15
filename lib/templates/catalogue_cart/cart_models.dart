@@ -13,7 +13,10 @@ class CatalogueItem {
     this.wholesalePrice,
     this.wholesaleUnit = '',
     this.wholesaleMultiplier = 1,
+    this.barcode,
   });
+
+  final String? barcode;
 
   final String id;
   final String name;
@@ -80,7 +83,13 @@ extension PayMethodLabel on PayMethod {
 /// The cart for one business. Create one per tenant (inside `TenantScope`)
 /// so a switch cannot carry lines across businesses.
 class CartState extends ChangeNotifier {
-  CartState({double taxPercent = 0}) : _taxPercent = taxPercent < 0 ? 0 : taxPercent;
+  CartState({double taxPercent = 0, this.canEditPrice = true, this.canDiscount = true})
+      : _taxPercent = taxPercent < 0 ? 0 : taxPercent;
+
+  /// Who may change a price or give a discount. Enforced here, not only in the
+  /// screens, so a restored or scripted change cannot get around it.
+  final bool canEditPrice;
+  final bool canDiscount;
 
   final Map<String, CartLine> _lines = {};
   final Map<String, double> _overrides = {};
@@ -206,7 +215,7 @@ class CartState extends ChangeNotifier {
   /// the override. A price equal to the current list price is not an override.
   void setOverride(String id, double? price) {
     final l = _lines[id];
-    if (l == null) return;
+    if (l == null || !canEditPrice) return;
     final list = (l.mode == PriceMode.wholesale && l.item.hasWholesale) ? l.item.wholesalePrice! : l.item.price;
     if (price == null || price < 0 || (price - list).abs() < 0.0001) {
       _overrides.remove(id);
@@ -224,6 +233,7 @@ class CartState extends ChangeNotifier {
   }
 
   void setDiscount(double amount) {
+    if (!canDiscount) return;
     _discount = amount.clamp(0, subtotal).toDouble();
     notifyListeners();
   }
@@ -258,7 +268,7 @@ class CartState extends ChangeNotifier {
     var changed = 0;
 
     final overrides = json['overrides'];
-    if (overrides is Map) {
+    if (canEditPrice && overrides is Map) {
       overrides.forEach((k, v) {
         if (v is num && v >= 0) _overrides[k.toString()] = v.toDouble();
       });
@@ -297,7 +307,7 @@ class CartState extends ChangeNotifier {
       _lines[id] = _line(_lines[id]!.item, _lines[id]!.qty);
     }
     final d = json['discount'];
-    _discount = d is num ? d.toDouble().clamp(0, subtotal).toDouble() : 0;
+    _discount = canDiscount && d is num ? d.toDouble().clamp(0, subtotal).toDouble() : 0;
     notifyListeners();
     return changed;
   }
@@ -310,9 +320,14 @@ class CartState extends ChangeNotifier {
 /// Several carts open at once, for a cashier serving more than one customer.
 /// Always has at least one cart.
 class CartSessions extends ChangeNotifier {
-  CartSessions({this.taxPercent = 0}) {
-    _add(_Named('Cart 1', CartState(taxPercent: taxPercent)));
+  CartSessions({this.taxPercent = 0, this.canEditPrice = true, this.canDiscount = true}) {
+    _add(_Named('Cart 1', _newCart()));
   }
+
+  final bool canEditPrice;
+  final bool canDiscount;
+
+  CartState _newCart() => CartState(taxPercent: taxPercent, canEditPrice: canEditPrice, canDiscount: canDiscount);
 
   /// Child carts notify this object too, so the cart strip and saving see
   /// every change.
@@ -334,7 +349,7 @@ class CartSessions extends ChangeNotifier {
 
   void create() {
     _counter++;
-    _add(_Named('Cart $_counter', CartState(taxPercent: taxPercent)));
+    _add(_Named('Cart $_counter', _newCart()));
     _active = _carts.length - 1;
     notifyListeners();
   }
@@ -378,12 +393,12 @@ class CartSessions extends ChangeNotifier {
     var changed = 0;
     for (final entry in saved) {
       if (entry is! Map) continue;
-      final cart = CartState(taxPercent: taxPercent);
+      final cart = _newCart();
       final data = entry['cart'];
       if (data is Map) changed += cart.restoreFrom(Map<String, Object?>.from(data), catalogue);
       _add(_Named(entry['label']?.toString() ?? 'Cart', cart));
     }
-    if (_carts.isEmpty) _add(_Named('Cart 1', CartState(taxPercent: taxPercent)));
+    if (_carts.isEmpty) _add(_Named('Cart 1', _newCart()));
     final a = json['active'];
     _active = a is int && a >= 0 && a < _carts.length ? a : 0;
     final n = json['counter'];

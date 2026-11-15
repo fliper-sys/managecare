@@ -148,6 +148,7 @@ class _CatalogueCartViewState extends State<CatalogueCartView> {
           return _ItemRow(
             price: widget.cart.lineOf(item.id)?.unitPrice ?? widget.cart.listPriceOf(item),
             custom: widget.cart.lineOf(item.id)?.overridden ?? false,
+            canEdit: widget.cart.canEditPrice,
             onEditPrice: () {
               final l = widget.cart.lineOf(item.id);
               if (l != null) showPriceEditor(context, widget.cart, l);
@@ -168,9 +169,10 @@ class _CatalogueCartViewState extends State<CatalogueCartView> {
 }
 
 class _ItemRow extends StatelessWidget {
-  const _ItemRow({required this.price, required this.custom, required this.onEditPrice, required this.item, required this.qty, required this.accent, required this.onAdd, required this.onMinus, required this.muted});
+  const _ItemRow({required this.price, required this.custom, required this.canEdit, required this.onEditPrice, required this.item, required this.qty, required this.accent, required this.onAdd, required this.onMinus, required this.muted});
   final double price;
   final bool custom;
+  final bool canEdit;
   final VoidCallback onEditPrice;
   final CatalogueItem item;
   final int qty;
@@ -198,7 +200,7 @@ class _ItemRow extends StatelessWidget {
             Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppType.sans(size: 15, weight: FontWeight.w700, color: t.ink)),
             const SizedBox(height: 2),
             Row(children: [
-              if (qty > 0)
+              if (qty > 0 && canEdit)
                 TactilePressable(
                   onTap: onEditPrice,
                   semanticLabel: 'Edit price of ${item.name}',
@@ -212,7 +214,7 @@ class _ItemRow extends StatelessWidget {
                   ),
                 )
               else
-                Text(formatNairaPrecise(price), style: AppType.mono(size: 13, color: t.inkMuted)),
+                Text(formatNairaPrecise(price), style: AppType.mono(size: 13, color: custom ? t.warning : t.inkMuted)),
               const SizedBox(width: AppTokens.s8),
               if (soldOut) const StatusChip(label: 'Sold out', tone: StatusTone.danger),
               if (low) StatusChip(label: '${item.stock.toStringAsFixed(0)} left', tone: StatusTone.warning),

@@ -260,14 +260,14 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
     final busy = _phase == _Phase.processing;
     return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Text('Review ${widget.terms.sale.toLowerCase()}', style: AppType.sans(size: 18, weight: FontWeight.w800, color: t.ink)),
-      Text('Tap a line to change its price', style: AppType.sans(size: 12, color: t.inkMuted)),
+      if (widget.cart.canEditPrice) Text('Tap a line to change its price', style: AppType.sans(size: 12, color: t.inkMuted)),
       const SizedBox(height: AppTokens.s12),
       ListenableBuilder(
         listenable: widget.cart,
         builder: (_, __) => Column(children: [
           for (final l in widget.cart.lines) ...[
             TactilePressable(
-              onTap: busy ? null : () => _editPrice(l),
+              onTap: (busy || !widget.cart.canEditPrice) ? null : () => _editPrice(l),
               semanticLabel: 'Edit price of ${l.item.name}',
               child: Container(
                 constraints: const BoxConstraints(minHeight: 44),
@@ -282,7 +282,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                   ),
                   Text(formatNairaPrecise(l.total), style: AppType.mono(size: 14, color: t.ink)),
                   const SizedBox(width: AppTokens.s8),
-                  Icon(Icons.edit_outlined, size: 18, color: l.overridden ? t.warning : t.inkMuted),
+                  if (widget.cart.canEditPrice) Icon(Icons.edit_outlined, size: 18, color: l.overridden ? t.warning : t.inkMuted),
                 ]),
               ),
             ),
@@ -328,7 +328,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
           ),
         ),
         const SizedBox(width: AppTokens.s8),
-        Expanded(child: _discountField(t, busy)),
+        if (widget.cart.canDiscount) Expanded(child: _discountField(t, busy)) else const Spacer(),
       ]),
       if (widget.stores.length > 1) ...[
         const SizedBox(height: AppTokens.s12),

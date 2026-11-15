@@ -6,9 +6,16 @@ import '../../../business_profiles/business_profiles.dart';
 import '../../../core/utils/receipt_utility.dart';
 import '../../../services/receipt_manager.dart';
 import 'retail_post_sale.dart';
+import 'retail_barcode.dart';
+import '../../../services/barcode_service.dart';
+import '../../../services/analytics_service.dart';
+import '../../../core/utils/worker_permissions.dart';
+import '../../../presentation/sales/screens/sales_history_screen.dart';
+import '../../../presentation/sales/screens/customer_tracking_screen.dart';
 import '../../../design/ambient_background.dart';
 import '../../../design/app_tokens.dart';
 import '../../../design/app_type.dart';
+import '../../../design/components/components.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/customer_provider.dart';
@@ -96,6 +103,8 @@ class _PosBodyState extends State<_PosBody> {
   void dispose() {
     _persistence?.flush();
     _persistence?.dispose();
+    _handheldController.dispose();
+    _handheldFocus.dispose();
     _sessions.dispose();
     super.dispose();
   }
@@ -125,6 +134,7 @@ class _PosBodyState extends State<_PosBody> {
             wholesalePrice: p.hasWholesalePricing ? p.wholesalePrice : null,
             wholesaleUnit: p.resolvedSaleUnit,
             wholesaleMultiplier: p.resolvedSaleUnitMultiplier,
+            barcode: p.barcode,
           ),
       ];
 
@@ -267,6 +277,50 @@ class _PosBodyState extends State<_PosBody> {
       tax: tax,
       discount: discount,
     );
+  }
+
+  /// Adds the product for a scanned or typed code. Same matching, messages and
+  /// analytics event as the old POS.
+  Future<void> _onBarcode(String code, {required String source, required List<CatalogueItem> items}) async {
+    final b = code.trim();
+    if (b.isEmpty) return;
+    final messenger = ScaffoldMessenger.of(context);
+    if (!await BarcodeService().validateBarcode(b)) {
+      messenger.showSnackBar(SnackBar(content: Text('Invalid barcode: $b')));
+      return;
+    }
+    final id = findIdForBarcode(b, [for (final i in items) (id: i.id, barcode: i.barcode)]);
+    final item = id == null ? null : items.firstWhere((i) => i.id == id);
+    if (item == null) {
+      messenger.showSnackBar(SnackBar(content: Text('No product found for barcode: $b')));
+      return;
+    }
+    if (!_sessions.active.add(item)) {
+      messenger.showSnackBar(SnackBar(content: Text('No more ${item.name} in stock')));
+      return;
+    }
+    try {
+      await AnalyticsService().logEvent('barcode_scanned', {
+        'barcode': b,
+        'productId': item.id,
+        'productName': item.name,
+        'business_type': 'retail',
+        'source': source,
+        'matchType': (item.barcode ?? '').trim() == b ? 'exact' : 'fuzzy',
+      });
+    } catch (_) {}
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text('Added ${item.name} to cart'), duration: const Duration(seconds: 2)));
+  }
+
+  Future<void> _scanWithCamera(List<CatalogueItem> items) async {
+    try {
+      final code = await BarcodeService().scanBarcode(context);
+      if (code != null && code.isNotEmpty && mounted) await _onBarcode(code, source: 'camera', items: items);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Scan error: $e')));
+    }
   }
 
   /// Print, share or download, through the same receipt manager as the old POS.
@@ -468,7 +522,25 @@ class _PosBody extends StatefulWidget {
 }
 
 class _PosBodyState extends State<_PosBody> {
-  final CartSessions _sessions = CartSessions();
+  late final CartSessions _sessions = _makeSessions();
+
+  /// Same rules as the old POS: owners can always edit prices and discount;
+  /// other roles follow `WorkerPermissions`.
+  CartSessions _makeSessions() {
+    final auth = context.read<AuthProvider>();
+    final role = auth.currentUser?.role ?? '';
+    return CartSessions(
+      canEditPrice: auth.isOwnerUser || WorkerPermissions.canEditPrice(role),
+      canDiscount: auth.isOwnerUser || WorkerPermissions.canApplyDiscount(role),
+    );
+  }
+
+  bool _handheld = false;
+
+  /// Store whose products are shown; null means all stores.
+  String? _storeFilter;
+  final _handheldController = TextEditingController();
+  final _handheldFocus = FocusNode();
   final Map<String, Map<String, dynamic>> _sales = {}; // receipt reference -> sale map
 
   @override
@@ -562,8 +634,60 @@ class _PosBodyState extends State<_PosBody> {
                   icon: Icon(Icons.arrow_back_rounded, color: t.ink),
                   onPressed: () => Navigator.of(context).maybePop(),
                 ),
-                Text(profile.terms.newSale, style: AppType.sans(size: 20, weight: FontWeight.w800, color: t.ink)),
+                Expanded(child: Text(profile.terms.newSale, style: AppType.sans(size: 20, weight: FontWeight.w800, color: t.ink))),
+                IconButton(
+                  tooltip: 'Refresh products',
+                  icon: Icon(Icons.refresh_rounded, color: t.ink),
+                  onPressed: () => context.read<RetailProvider>().loadProducts(storeId: _storeFilter, forceRefresh: true),
+                ),
+                IconButton(
+                  tooltip: 'Scan barcode',
+                  icon: Icon(Icons.qr_code_scanner_rounded, color: t.ink),
+                  onPressed: () => _scanWithCamera(items),
+                ),
+                IconButton(
+                  tooltip: _handheld ? 'Hide handheld scanner field' : 'Handheld scanner mode',
+                  icon: Icon(_handheld ? Icons.keyboard : Icons.keyboard_hide, color: t.ink),
+                  onPressed: () => setState(() => _handheld = !_handheld),
+                ),
+                IconButton(
+                  tooltip: 'Sales history',
+                  icon: Icon(Icons.history_rounded, color: t.ink),
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SalesHistoryScreen())),
+                ),
+                IconButton(
+                  tooltip: 'Customer tracking',
+                  icon: Icon(Icons.people_rounded, color: t.ink),
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerTrackingScreen())),
+                ),
               ]),
+            ),
+            if (_handheld)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(AppTokens.s16, 0, AppTokens.s16, AppTokens.s8),
+                child: TextField(
+                  controller: _handheldController,
+                  focusNode: _handheldFocus,
+                  autofocus: true,
+                  style: AppType.sans(size: 15, color: t.ink),
+                  decoration: const InputDecoration(hintText: 'Scan barcode with handheld scanner...'),
+                  onSubmitted: (v) async {
+                    await _onBarcode(v, source: 'handheld', items: items);
+                    _handheldController.clear();
+                    Future.delayed(const Duration(milliseconds: 50), () {
+                      if (mounted) _handheldFocus.requestFocus();
+                    });
+                  },
+                ),
+              ),
+            if (retail.stores.length > 1) _StoreFilter(
+              stores: retail.stores,
+              selected: _storeFilter,
+              onSelected: (id) {
+                setState(() => _storeFilter = id);
+                context.read<RetailProvider>().loadProducts(storeId: id, forceRefresh: true);
+              },
+              accent: profile.accent,
             ),
             Expanded(
               child: ListenableBuilder(
@@ -588,6 +712,7 @@ class _PosBodyState extends State<_PosBody> {
                     accent: profile.accent,
                     methods: const [PayMethod.cash, PayMethod.transfer, PayMethod.card],
                     stores: [for (final s in retail.stores) StoreOption(s.id, s.name)],
+                    initialStoreId: _storeFilter,
                     customers: [for (final c in customers) CustomerOption(id: c.id, name: c.name, phone: c.phone, email: c.email)],
                     onComplete: (input) => _complete(cart, input),
                     onReceiptActions: _receiptActions,
@@ -597,6 +722,49 @@ class _PosBodyState extends State<_PosBody> {
             ),
           ]),
         ),
+      ),
+    );
+  }
+}
+
+class _StoreFilter extends StatelessWidget {
+  const _StoreFilter({required this.stores, required this.selected, required this.onSelected, required this.accent});
+  final List<dynamic> stores;
+  final String? selected;
+  final ValueChanged<String?> onSelected;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    Widget chip(String label, String? id) {
+      final on = selected == id;
+      return Padding(
+        padding: const EdgeInsets.only(right: AppTokens.s8),
+        child: TactilePressable(
+          onTap: () => onSelected(id),
+          semanticLabel: label,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 40),
+            padding: const EdgeInsets.symmetric(horizontal: AppTokens.s16),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: on ? AppTokens.tint(accent) : t.raised,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: on ? accent : t.line),
+            ),
+            child: Text(label, style: AppType.sans(size: 13, weight: FontWeight.w700, color: on ? t.ink : t.inkMuted)),
+          ),
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: 48,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: AppTokens.s16),
+        children: [chip('All stores', null), for (final s in stores) chip(s.name as String, s.id as String)],
       ),
     );
   }
