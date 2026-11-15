@@ -100,6 +100,7 @@ import '../presentation/industry_specific/retail/screens/add_product_screen.dart
 import '../presentation/industry_specific/retail/screens/add_supplier_screen.dart';
 import '../presentation/industry_specific/retail/screens/retail_dashboard.dart';
 import '../features/retail/home/retail_home_screen.dart';
+import '../features/retail/pos/retail_pos_screen.dart';
 import '../shared_features/ui_v2.dart';
 import '../presentation/industry_specific/retail/screens/store_reports_screen.dart';
 import '../presentation/industry_specific/wholesale/screens/warehouse_dashboard_screen.dart';
@@ -699,7 +700,9 @@ class AppRouter {
         return _buildRoute(const WarehouseDashboardScreen());
 
       case Routes.retailPos:
-        return _buildRoute(const PosScreen());
+        return _buildRoute(UiV2.enabledFor('retail')
+            ? const RetailPosScreen()
+            : const PosScreen());
 
       case Routes.retailSuppliers:
         return _buildRoute(const SupplierManagementScreen());
