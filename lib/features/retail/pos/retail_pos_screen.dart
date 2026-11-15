@@ -10,7 +10,7 @@ import 'retail_barcode.dart';
 import '../../../services/barcode_service.dart';
 import '../../../services/analytics_service.dart';
 import '../../../core/utils/worker_permissions.dart';
-import '../../../presentation/sales/screens/sales_history_screen.dart';
+import '../history/retail_history_screen.dart';
 import '../../../presentation/sales/screens/customer_tracking_screen.dart';
 import '../../../design/ambient_background.dart';
 import '../../../design/app_tokens.dart';
@@ -653,7 +653,7 @@ class _PosBodyState extends State<_PosBody> {
                 IconButton(
                   tooltip: 'Sales history',
                   icon: Icon(Icons.history_rounded, color: t.ink),
-                  onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SalesHistoryScreen())),
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const RetailHistoryScreen())),
                 ),
                 IconButton(
                   tooltip: 'Customer tracking',

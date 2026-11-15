@@ -101,7 +101,9 @@ import '../presentation/industry_specific/retail/screens/add_supplier_screen.dar
 import '../presentation/industry_specific/retail/screens/retail_dashboard.dart';
 import '../features/retail/home/retail_home_screen.dart';
 import '../features/retail/pos/retail_pos_screen.dart';
+import '../features/retail/history/retail_history_screen.dart';
 import '../shared_features/ui_v2.dart';
+import '../shared_features/ui_v2_switch.dart';
 import '../presentation/industry_specific/retail/screens/store_reports_screen.dart';
 import '../presentation/industry_specific/wholesale/screens/warehouse_dashboard_screen.dart';
 import '../presentation/industry_specific/wholesale/screens/warehouses_screen.dart';
@@ -318,7 +320,10 @@ class AppRouter {
         return _buildRoute(const BakerySalesScreen());
 
       case Routes.salesHistory:
-        return _buildRoute(const SalesHistoryScreen());
+        return _buildRoute(UiV2Switch(
+            type: 'retail',
+            v2: (_) => const RetailHistoryScreen(),
+            legacy: (_) => const SalesHistoryScreen()));
 
       case Routes.refundHistory:
         return _buildRoute(const RefundHistoryScreen());
@@ -689,9 +694,10 @@ class AppRouter {
       // Industry Specific Routes - Retail
       case Routes.retailDashboard:
         // v2 only when flagged (UI_V2) and migrated; otherwise unchanged.
-        return _buildRoute(UiV2.enabledFor('retail')
-            ? const RetailHomeScreen()
-            : const RetailDashboard());
+        return _buildRoute(UiV2Switch(
+            type: 'retail',
+            v2: (_) => const RetailHomeScreen(),
+            legacy: (_) => const RetailDashboard()));
 
       case Routes.bakeryDashboard:
         return _buildRoute(const RetailDashboard.bakery());
@@ -700,9 +706,10 @@ class AppRouter {
         return _buildRoute(const WarehouseDashboardScreen());
 
       case Routes.retailPos:
-        return _buildRoute(UiV2.enabledFor('retail')
-            ? const RetailPosScreen()
-            : const PosScreen());
+        return _buildRoute(UiV2Switch(
+            type: 'retail',
+            v2: (_) => const RetailPosScreen(),
+            legacy: (_) => const PosScreen()));
 
       case Routes.retailSuppliers:
         return _buildRoute(const SupplierManagementScreen());
