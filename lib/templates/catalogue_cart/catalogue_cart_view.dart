@@ -6,6 +6,7 @@ import '../../design/app_type.dart';
 import '../../design/components/components.dart';
 import '../../design/format.dart';
 import 'cart_models.dart';
+import 'price_editor.dart';
 
 /// Catalogue and cart screen body shared by the catalogue-and-cart family.
 /// Words come from [terms], colour from [accent]; it reads no provider.
@@ -19,6 +20,7 @@ class CatalogueCartView extends StatefulWidget {
     required this.onCheckout,
     this.isLoading = false,
     this.onOutOfStock,
+    this.sessions,
   });
 
   final List<CatalogueItem> items;
@@ -30,6 +32,10 @@ class CatalogueCartView extends StatefulWidget {
 
   /// Called when the user taps an item with no stock left to add.
   final ValueChanged<CatalogueItem>? onOutOfStock;
+
+  /// When set, a strip of open carts shows above the catalogue. [cart] must be
+  /// `sessions.active`; the parent rebuilds when the active cart changes.
+  final CartSessions? sessions;
 
   @override
   State<CatalogueCartView> createState() => _CatalogueCartViewState();
@@ -60,6 +66,9 @@ class _CatalogueCartViewState extends State<CatalogueCartView> {
 
     return Stack(children: [
       Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        if (widget.sessions != null) _SessionStrip(sessions: widget.sessions!, accent: widget.accent),
+        if (widget.items.any((i) => i.hasWholesale))
+          _ModeToggle(cart: widget.cart, accent: widget.accent),
         Padding(
           padding: const EdgeInsets.fromLTRB(AppTokens.s16, AppTokens.s8, AppTokens.s16, AppTokens.s8),
           child: TextField(
@@ -137,6 +146,12 @@ class _CatalogueCartViewState extends State<CatalogueCartView> {
         itemBuilder: (context, i) {
           final item = visible[i];
           return _ItemRow(
+            price: widget.cart.lineOf(item.id)?.unitPrice ?? widget.cart.listPriceOf(item),
+            custom: widget.cart.lineOf(item.id)?.overridden ?? false,
+            onEditPrice: () {
+              final l = widget.cart.lineOf(item.id);
+              if (l != null) showPriceEditor(context, widget.cart, l);
+            },
             item: item,
             qty: widget.cart.qtyOf(item.id),
             accent: widget.accent,
@@ -153,7 +168,10 @@ class _CatalogueCartViewState extends State<CatalogueCartView> {
 }
 
 class _ItemRow extends StatelessWidget {
-  const _ItemRow({required this.item, required this.qty, required this.accent, required this.onAdd, required this.onMinus, required this.muted});
+  const _ItemRow({required this.price, required this.custom, required this.onEditPrice, required this.item, required this.qty, required this.accent, required this.onAdd, required this.onMinus, required this.muted});
+  final double price;
+  final bool custom;
+  final VoidCallback onEditPrice;
   final CatalogueItem item;
   final int qty;
   final Color accent;
@@ -180,7 +198,21 @@ class _ItemRow extends StatelessWidget {
             Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppType.sans(size: 15, weight: FontWeight.w700, color: t.ink)),
             const SizedBox(height: 2),
             Row(children: [
-              Text(formatNaira(item.price), style: AppType.mono(size: 13, color: t.inkMuted)),
+              if (qty > 0)
+                TactilePressable(
+                  onTap: onEditPrice,
+                  semanticLabel: 'Edit price of ${item.name}',
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 32),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Text(formatNairaPrecise(price), style: AppType.mono(size: 13, weight: FontWeight.w700, color: custom ? t.warning : t.ink)),
+                      const SizedBox(width: 4),
+                      Icon(Icons.edit_outlined, size: 14, color: custom ? t.warning : t.inkMuted),
+                    ]),
+                  ),
+                )
+              else
+                Text(formatNairaPrecise(price), style: AppType.mono(size: 13, color: t.inkMuted)),
               const SizedBox(width: AppTokens.s8),
               if (soldOut) const StatusChip(label: 'Sold out', tone: StatusTone.danger),
               if (low) StatusChip(label: '${item.stock.toStringAsFixed(0)} left', tone: StatusTone.warning),
@@ -275,7 +307,7 @@ class _CartBar extends StatelessWidget {
     final t = AppTokens.of(context);
     return TactilePressable(
       onTap: onTap,
-      semanticLabel: 'Review ${cart.count} items, ${formatNaira(cart.total)}',
+      semanticLabel: 'Review ${cart.count} items, ${formatNairaPrecise(cart.total)}',
       child: Container(
         constraints: const BoxConstraints(minHeight: 60),
         padding: const EdgeInsets.symmetric(horizontal: AppTokens.s16),
@@ -284,7 +316,7 @@ class _CartBar extends StatelessWidget {
           Text('${cart.count} ${cart.count == 1 ? terms.item.toLowerCase() : terms.items.toLowerCase()}',
               style: AppType.sans(size: 14, weight: FontWeight.w700, color: t.onAccent)),
           const Spacer(),
-          Text(formatNaira(cart.total), style: AppType.mono(size: 17, weight: FontWeight.w700, color: t.onAccent)),
+          Text(formatNairaPrecise(cart.total), style: AppType.mono(size: 17, weight: FontWeight.w700, color: t.onAccent)),
           const SizedBox(width: AppTokens.s8),
           Icon(Icons.arrow_forward_rounded, size: 20, color: t.onAccent),
         ]),
@@ -309,6 +341,68 @@ class _Empty extends StatelessWidget {
           const SizedBox(height: AppTokens.s8),
           Text(body, textAlign: TextAlign.center, style: AppType.sans(size: 13, color: t.inkMuted)),
         ]),
+      ),
+    );
+  }
+}
+
+class _ModeToggle extends StatelessWidget {
+  const _ModeToggle({required this.cart, required this.accent});
+  final CartState cart;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: cart,
+        builder: (context, _) => Padding(
+          padding: const EdgeInsets.fromLTRB(AppTokens.s16, AppTokens.s4, AppTokens.s16, 0),
+          child: Row(children: [
+            _CatChip(label: 'Retail', selected: cart.mode == PriceMode.retail, accent: accent, onTap: () => cart.setMode(PriceMode.retail)),
+            _CatChip(label: 'Wholesale', selected: cart.mode == PriceMode.wholesale, accent: accent, onTap: () => cart.setMode(PriceMode.wholesale)),
+          ]),
+        ),
+      );
+}
+
+class _SessionStrip extends StatelessWidget {
+  const _SessionStrip({required this.sessions, required this.accent});
+  final CartSessions sessions;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    return ListenableBuilder(
+      listenable: sessions,
+      builder: (context, _) => SizedBox(
+        height: 48,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: AppTokens.s16),
+          children: [
+            for (var i = 0; i < sessions.length; i++)
+              _CatChip(
+                label: sessions.countAt(i) == 0 ? sessions.labelAt(i) : '${sessions.labelAt(i)} · ${sessions.countAt(i)}',
+                selected: i == sessions.activeIndex,
+                accent: accent,
+                onTap: () => sessions.switchTo(i),
+              ),
+            if (sessions.length > 1)
+              Padding(
+                padding: const EdgeInsets.only(right: AppTokens.s8),
+                child: TactilePressable(
+                  onTap: () => sessions.close(sessions.activeIndex),
+                  semanticLabel: 'Close ${sessions.labelAt(sessions.activeIndex)}',
+                  child: SizedBox(width: 44, height: 44, child: Icon(Icons.close_rounded, size: 20, color: t.inkMuted)),
+                ),
+              ),
+            TactilePressable(
+              onTap: sessions.create,
+              semanticLabel: 'New cart',
+              child: SizedBox(width: 44, height: 44, child: Icon(Icons.add_rounded, size: 22, color: t.ink)),
+            ),
+          ],
+        ),
       ),
     );
   }

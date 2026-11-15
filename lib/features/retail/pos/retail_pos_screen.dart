@@ -35,7 +35,9 @@ class _PosBody extends StatefulWidget {
 }
 
 class _PosBodyState extends State<_PosBody> {
-  final CartState _cart = CartState();
+  late final CartSessions _sessions = CartSessions(taxPercent: _taxPercent());
+
+  double _taxPercent() => context.read<BusinessProvider>().currentBusiness?.taxRate ?? 0;
 
   @override
   void initState() {
@@ -48,13 +50,129 @@ class _PosBodyState extends State<_PosBody> {
 
   @override
   void dispose() {
-    _cart.dispose();
+    _sessions.dispose();
     super.dispose();
   }
 
   List<CatalogueItem> _items(RetailProvider r) => [
         for (final p in r.products)
-          CatalogueItem(id: p.id, name: p.name, price: p.price, stock: p.stock, category: p.category, unit: p.unit),
+          CatalogueItem(
+            id: p.id,
+            name: p.name,
+            price: p.price,
+            stock: p.stock,
+            category: p.category,
+            unit: p.unit,
+            wholesalePrice: p.hasWholesalePricing ? p.wholesalePrice : null,
+          ),
+      ];
+
+  static String _name(PayMethod m) => switch (m) {
+        PayMethod.cash => 'Cash',
+        PayMethod.transfer => 'Transfer',
+        PayMethod.card => 'Card',
+        PayMethod.credit => 'Credit',
+      };
+
+  /// Copies the v2 cart into the provider cart, records the sale, and builds
+  /// the receipt. A failure leaves the provider cart empty again.
+  Future<SaleReceipt> _complete(CartState cart, CheckoutInput input) async {
+    final retail = context.read<RetailProvider>();
+    final auth = context.read<AuthProvider>();
+    final business = context.read<BusinessProvider>().currentBusiness;
+    final lines = cart.lines;
+    final total = cart.total;
+    final tax = cart.taxAmount;
+    final discount = cart.discount;
+    final overrides = cart.overrides;
+    final split = input.splits.isNotEmpty;
+
+    retail.clearCart();
+    bool queued;
+    try {
+      for (final l in lines) {
+        retail.addToCart(l.item.id, qty: l.qty, pricingMode: l.mode.name);
+      }
+      queued = await retail.checkout(
+        // Same strings the old POS sends: a capitalised name, or Mixed with a
+        // lower-case breakdown.
+        paymentMethod: split ? 'Mixed' : _name(input.method!),
+        paymentBreakdown: split
+            ? [for (final s in input.splits) {'method': s.method.name, 'amount': s.amount}]
+            : [
+                {'method': input.method!.name, 'amount': total}
+              ],
+        tax: cart.taxPercent,
+        discount: discount,
+        priceOverrides: overrides.isEmpty ? null : overrides,
+        storeId: input.storeId,
+        customerName: input.customer,
+        workerId: auth.currentUser?.id,
+        workerName: auth.currentUser?.name,
+      );
+    } catch (_) {
+      retail.clearCart();
+      rethrow;
+    }
+    return SaleReceipt(
+      reference: ReceiptUtility.generateReferenceId(business?.name),
+      when: DateTime.now(),
+      lines: lines,
+      total: total,
+      method: split ? null : input.method,
+      splits: input.splits,
+      customer: input.customer,
+      queuedOffline: queued,
+      tax: tax,
+      discount: discount,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final id = context.select<BusinessProvider, String?>((p) => p.currentBusiness?.id);
+    if (id == null) return const SizedBox.shrink();
+    return TenantScope(tenantId: id, child: const _PosBody());
+  }
+}
+
+class _PosBody extends StatefulWidget {
+  const _PosBody();
+  @override
+  State<_PosBody> createState() => _PosBodyState();
+}
+
+class _PosBodyState extends State<_PosBody> {
+  late final CartSessions _sessions = CartSessions(taxPercent: _taxPercent());
+
+  double _taxPercent() => context.read<BusinessProvider>().currentBusiness?.taxRate ?? 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final id = context.read<BusinessProvider>().currentBusiness?.id;
+      if (id != null) context.read<RetailProvider>().initialize(id);
+    });
+  }
+
+  @override
+  void dispose() {
+    _sessions.dispose();
+    super.dispose();
+  }
+
+  List<CatalogueItem> _items(RetailProvider r) => [
+        for (final p in r.products)
+          CatalogueItem(
+            id: p.id,
+            name: p.name,
+            price: p.price,
+            stock: p.stock,
+            category: p.category,
+            unit: p.unit,
+            wholesalePrice: p.hasWholesalePricing ? p.wholesalePrice : null,
+          ),
       ];
 
   /// Copies the v2 cart into the provider cart, records the sale, and builds
@@ -121,23 +239,32 @@ class _PosBodyState extends State<_PosBody> {
               ]),
             ),
             Expanded(
-              child: CatalogueCartView(
+              child: ListenableBuilder(
+                listenable: _sessions,
+                builder: (context, _) => CatalogueCartView(
+                key: ValueKey(_sessions.activeIndex),
+                sessions: _sessions,
                 items: _items(retail),
-                cart: _cart,
+                cart: _sessions.active,
                 terms: profile.terms,
                 accent: profile.accent,
                 isLoading: retail.isLoading && retail.products.isEmpty,
                 onOutOfStock: (item) => ScaffoldMessenger.of(context)
                   ..hideCurrentSnackBar()
                   ..showSnackBar(SnackBar(content: Text('No more ${item.name} in stock'))),
-                onCheckout: () => showCheckoutSheet(
-                  context,
-                  cart: _cart,
-                  terms: profile.terms,
-                  accent: profile.accent,
-                  onComplete: _complete,
-                ),
-              ),
+                onCheckout: () {
+                  final cart = _sessions.active;
+                  showCheckoutSheet(
+                    context,
+                    cart: cart,
+                    terms: profile.terms,
+                    accent: profile.accent,
+                    methods: const [PayMethod.cash, PayMethod.transfer, PayMethod.card],
+                    stores: [for (final s in retail.stores) StoreOption(s.id, s.name)],
+                    onComplete: (input) => _complete(cart, input),
+                  );
+                },
+              )),
             ),
           ]),
         ),

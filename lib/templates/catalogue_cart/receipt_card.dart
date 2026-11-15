@@ -110,7 +110,7 @@ class ReceiptCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 3),
               child: Row(children: [
                 Expanded(child: Text('${l.qty} × ${l.item.name}', maxLines: 1, overflow: TextOverflow.ellipsis, style: AppType.sans(size: 13, color: t.ink))),
-                Text(formatNaira(l.total), style: AppType.mono(size: 13, color: t.ink)),
+                Text(formatNairaPrecise(l.total), style: AppType.mono(size: 13, color: t.ink)),
               ]),
             ),
           Padding(
@@ -119,14 +119,33 @@ class ReceiptCard extends StatelessWidget {
               for (var i = 0; i < 28; i++) Expanded(child: Container(height: 1.5, margin: const EdgeInsets.symmetric(horizontal: 1.5), color: i.isEven ? t.line : Colors.transparent)),
             ]),
           ),
+          if (receipt.tax > 0 || receipt.discount > 0) ...[
+            if (receipt.tax > 0) _row(t, 'Tax', formatNairaPrecise(receipt.tax)),
+            if (receipt.discount > 0) _row(t, 'Discount', '-${formatNairaPrecise(receipt.discount)}'),
+            const SizedBox(height: 6),
+          ],
           Row(children: [
-            Expanded(child: Text('Paid by ${receipt.method.label}', style: AppType.sans(size: 13, color: t.inkMuted))),
-            Text(formatNaira(receipt.total), style: AppType.mono(size: 20, weight: FontWeight.w700, color: t.ink)),
+            Expanded(child: Text(_paidBy(receipt), style: AppType.sans(size: 13, color: t.inkMuted))),
+            Text(formatNairaPrecise(receipt.total), style: AppType.mono(size: 20, weight: FontWeight.w700, color: t.ink)),
           ]),
         ]),
       ),
     );
   }
+}
+
+Widget _row(AppTokens t, String k, String v) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(children: [
+        Expanded(child: Text(k, style: AppType.sans(size: 12, color: t.inkMuted))),
+        Text(v, style: AppType.mono(size: 12, color: t.inkMuted)),
+      ]),
+    );
+
+String _paidBy(SaleReceipt r) {
+  if (r.method != null) return 'Paid by ${r.method!.label}';
+  if (r.splits.isEmpty) return 'Paid';
+  return 'Paid: ${r.splits.map((s) => '${s.method.label} ${formatNairaPrecise(s.amount)}').join(', ')}';
 }
 
 class _PerforatedClipper extends CustomClipper<Path> {
