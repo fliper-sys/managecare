@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 const _rice = CatalogueItem(id: 'r', name: 'Rice 50kg', price: 45000, stock: 3, category: 'Grains');
 const _oil = CatalogueItem(id: 'o', name: 'Palm oil', price: 2500, stock: 40, category: 'Oils');
 const _flour = CatalogueItem(id: 'f', name: 'Flour 25kg', price: 20000, wholesalePrice: 18500, stock: 100, category: 'Grains');
+const _carton = CatalogueItem(id: 'k', name: 'Indomie', price: 200, wholesalePrice: 2200, wholesaleUnit: 'carton', wholesaleMultiplier: 12, stock: 30);
 const _gone = CatalogueItem(id: 'g', name: 'Salt', price: 300, stock: 0, category: 'Oils');
 final _terms = retailProfile.terms;
 
@@ -240,6 +241,47 @@ void main() {
       expect(await p.restore(catalogue), -1); // cashier already started
       expect(s.active.qtyOf('r'), 1);
       p.dispose();
+    });
+  });
+
+
+  group('wholesale sale units use more stock', () {
+    test('a wholesale carton counts as its multiplier of base units', () {
+      final c = CartState()..setMode(PriceMode.wholesale);
+      expect(c.add(_carton), isTrue); // 12 of 30
+      expect(c.add(_carton), isTrue); // 24 of 30
+      expect(c.add(_carton), isFalse); // 36 > 30
+      expect(c.lineOf('k')!.inventoryQty, 24);
+      expect(c.lineOf('k')!.qty, 2);
+    });
+
+    test('switching to wholesale cuts the quantity to what stock allows', () {
+      final c = CartState();
+      for (var i = 0; i < 30; i++) {
+        c.add(_carton);
+      }
+      expect(c.lineOf('k')!.qty, 30);
+      c.setMode(PriceMode.wholesale);
+      expect(c.lineOf('k')!.qty, 2); // floor(30 / 12)
+      expect(c.lineOf('k')!.unitPrice, 2200);
+    });
+
+    test('a line that cannot fit even one wholesale unit is removed', () {
+      const tiny = CatalogueItem(id: 't', name: 'Tiny', price: 10, wholesalePrice: 100, wholesaleMultiplier: 12, stock: 5);
+      final c = CartState()..add(tiny);
+      c.setMode(PriceMode.wholesale);
+      expect(c.lineOf('t'), isNull);
+    });
+
+    test('restore caps by inventory quantity when the line is wholesale', () {
+      final s = CartSessions();
+      s.active.setMode(PriceMode.wholesale);
+      s.active..add(_carton)..add(_carton);
+      final json = Map<String, Object?>.from(s.toJson());
+      const lowStock = CatalogueItem(id: 'k', name: 'Indomie', price: 200, wholesalePrice: 2200, wholesaleUnit: 'carton', wholesaleMultiplier: 12, stock: 14);
+      final back = CartSessions();
+      expect(back.restoreFrom(json, {'k': lowStock}), 1);
+      expect(back.active.qtyOf('k'), 1);
     });
   });
 
@@ -499,6 +541,37 @@ void main() {
       await tester.pump();
       expect(c.lineOf('f')!.unitPrice, 18500);
       expect(find.textContaining('₦18,500'), findsWidgets);
+    });
+
+    testWidgets('tax starts at zero and typing a rate changes the total', (tester) async {
+      final c = CartState()..add(_flour); // 20,000
+      await tester.pumpWidget(_app(SingleChildScrollView(
+        child: CheckoutSheet(cart: c, terms: _terms, accent: Colors.teal, onComplete: (i) async => receipt(c, i.method)),
+      ), reduce: true));
+      expect(c.taxPercent, 0);
+      await tester.enterText(find.widgetWithText(TextField, 'Tax'), '7.5');
+      await tester.pump();
+      expect(c.taxPercent, 7.5);
+      expect(c.total, 21500);
+      expect(find.text('₦21,500'), findsWidgets);
+    });
+
+    testWidgets('receipt actions button appears after a sale and calls back', (tester) async {
+      final c = CartState()..add(_oil);
+      SaleReceipt? shared;
+      await tester.pumpWidget(_app(SingleChildScrollView(
+        child: CheckoutSheet(
+          cart: c, terms: _terms, accent: Colors.teal,
+          onComplete: (i) async => receipt(c, i.method),
+          onReceiptActions: (r) async => shared = r,
+        ),
+      ), reduce: true));
+      expect(find.text('Print or share receipt'), findsNothing);
+      await tester.tap(find.text('Complete sale'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Print or share receipt'));
+      await tester.pump();
+      expect(shared?.reference, 'R-1');
     });
   });
 }

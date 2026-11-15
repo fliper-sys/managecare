@@ -28,6 +28,7 @@ Future<void> showCheckoutSheet(
   String? initialStoreId,
   bool allowSplit = true,
   List<CustomerOption> customers = const [],
+  Future<void> Function(SaleReceipt receipt)? onReceiptActions,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -44,6 +45,7 @@ Future<void> showCheckoutSheet(
       initialStoreId: initialStoreId,
       allowSplit: allowSplit,
       customers: customers,
+      onReceiptActions: onReceiptActions,
     ),
   );
 }
@@ -62,8 +64,11 @@ class CheckoutSheet extends StatefulWidget {
     this.initialStoreId,
     this.allowSplit = true,
     this.customers = const [],
+    this.onReceiptActions,
   });
 
+  /// Opens print, share or download for the finished sale.
+  final Future<void> Function(SaleReceipt receipt)? onReceiptActions;
   final List<CustomerOption> customers;
   final CartState cart;
   final Terms terms;
@@ -86,6 +91,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
   SaleReceipt? _receipt;
   CustomerOption? _picked;
   final _customer = TextEditingController();
+  late final _tax = TextEditingController(text: widget.cart.taxPercent == 0 ? '0' : widget.cart.taxPercent.toString());
   final _discount = TextEditingController();
   final _cash = TextEditingController();
   final _card = TextEditingController();
@@ -95,7 +101,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
 
   @override
   void dispose() {
-    for (final c in [_customer, _discount, _cash, _card, _transfer]) {
+    for (final c in [_customer, _tax, _discount, _cash, _card, _transfer]) {
       c.dispose();
     }
     super.dispose();
@@ -232,6 +238,22 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
           ),
         ],
         const SizedBox(height: AppTokens.s16),
+        if (widget.onReceiptActions != null) ...[
+          TactilePressable(
+            onTap: () => widget.onReceiptActions!(_receipt!),
+            semanticLabel: 'Print or share receipt',
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 48),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppTokens.rControl),
+                border: Border.all(color: widget.accent),
+              ),
+              child: Text('Print or share receipt', style: AppType.sans(size: 14, weight: FontWeight.w700, color: t.ink)),
+            ),
+          ),
+          const SizedBox(height: AppTokens.s8),
+        ],
         _Primary(label: widget.terms.newSale, accent: widget.accent, onTap: () => Navigator.of(context).pop()),
       ]);
     }
@@ -254,7 +276,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text('${l.qty} × ${l.item.name}', maxLines: 1, overflow: TextOverflow.ellipsis, style: AppType.sans(size: 14, color: t.ink)),
                       if (l.overridden || l.mode == PriceMode.wholesale)
-                        Text(l.overridden ? 'Custom price ${formatNairaPrecise(l.unitPrice)}' : 'Wholesale ${formatNairaPrecise(l.unitPrice)}',
+                        Text(l.overridden ? 'Custom price ${formatNairaPrecise(l.unitPrice)}' : 'Wholesale ${formatNairaPrecise(l.unitPrice)}${l.item.wholesaleUnit.isEmpty ? '' : ' per ${l.item.wholesaleUnit}'}',
                             style: AppType.sans(size: 11, color: l.overridden ? t.warning : t.inkMuted)),
                     ]),
                   ),
@@ -286,21 +308,28 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
         ]),
       ),
       const SizedBox(height: AppTokens.s16),
-      TextField(
-        controller: _discount,
-        enabled: !busy,
-        onChanged: (v) => widget.cart.setDiscount(parseNaira(v) ?? 0),
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        inputFormatters: const [NairaInputFormatter()],
-        style: AppType.mono(size: 14, color: t.ink),
-        decoration: InputDecoration(
-          labelText: 'Discount (optional)',
-          prefixText: '₦ ',
-          filled: true,
-          fillColor: t.raised,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTokens.rControl), borderSide: BorderSide(color: t.line)),
+      Row(children: [
+        SizedBox(
+          width: 110,
+          child: TextField(
+            controller: _tax,
+            enabled: !busy,
+            onChanged: (v) => widget.cart.setTaxPercent((double.tryParse(v) ?? 0).clamp(0, 100).toDouble()),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))],
+            style: AppType.mono(size: 14, color: t.ink),
+            decoration: InputDecoration(
+              labelText: 'Tax',
+              suffixText: '%',
+              filled: true,
+              fillColor: t.raised,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTokens.rControl), borderSide: BorderSide(color: t.line)),
+            ),
+          ),
         ),
-      ),
+        const SizedBox(width: AppTokens.s8),
+        Expanded(child: _discountField(t, busy)),
+      ]),
       if (widget.stores.length > 1) ...[
         const SizedBox(height: AppTokens.s12),
         Wrap(spacing: AppTokens.s8, runSpacing: AppTokens.s8, children: [
@@ -378,6 +407,22 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
       ),
     ]);
   }
+
+  Widget _discountField(AppTokens t, bool busy) => TextField(
+        controller: _discount,
+        enabled: !busy,
+        onChanged: (v) => widget.cart.setDiscount(parseNaira(v) ?? 0),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: const [NairaInputFormatter()],
+        style: AppType.mono(size: 14, color: t.ink),
+        decoration: InputDecoration(
+          labelText: 'Discount',
+          prefixText: '₦ ',
+          filled: true,
+          fillColor: t.raised,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTokens.rControl), borderSide: BorderSide(color: t.line)),
+        ),
+      );
 
   Widget _line(AppTokens t, String k, String v) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),

@@ -91,7 +91,7 @@ class _RetailHomeBodyState extends State<_RetailHomeBody> {
   Widget build(BuildContext context) {
     final bp = context.watch<BusinessProvider>();
     final retail = context.watch<RetailProvider>();
-    final name = context.watch<AuthProvider>().currentUser?.name ?? '';
+    final name = context.watch<AuthProvider>().currentUser?.fullName ?? '';
     if (bp.currentBusiness == null) return const SizedBox.shrink();
     final profile = BusinessProfiles.forType('retail')!;
 

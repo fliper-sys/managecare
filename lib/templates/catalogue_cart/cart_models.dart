@@ -11,6 +11,8 @@ class CatalogueItem {
     this.category = '',
     this.unit = '',
     this.wholesalePrice,
+    this.wholesaleUnit = '',
+    this.wholesaleMultiplier = 1,
   });
 
   final String id;
@@ -24,6 +26,11 @@ class CatalogueItem {
 
   /// Set when the item is also sold at a wholesale price.
   final double? wholesalePrice;
+
+  /// Wholesale is sold in a bigger unit (a carton of 12). Stock is held in
+  /// the base unit, so one wholesale unit uses [wholesaleMultiplier] of it.
+  final String wholesaleUnit;
+  final double wholesaleMultiplier;
 
   bool get hasWholesale => wholesalePrice != null && wholesalePrice! > 0;
 }
@@ -40,6 +47,12 @@ class CartLine {
   final bool overridden;
   final double? _unit;
   double get unitPrice => _unit ?? item.price;
+
+  /// Base units of stock used by one unit sold on this line.
+  double get multiplier => (mode == PriceMode.wholesale && item.hasWholesale) ? item.wholesaleMultiplier : 1;
+
+  /// Total base units leaving stock for this line.
+  double get inventoryQty => multiplier * qty;
   double get total => unitPrice * qty;
 }
 
@@ -114,8 +127,9 @@ class CartState extends ChangeNotifier {
   /// Adds one unit. Returns false when stock is already fully in the cart.
   bool add(CatalogueItem item) {
     final have = qtyOf(item.id);
-    if (have + 1 > item.stock) return false;
-    _lines[item.id] = _line(item, have + 1);
+    final probe = _line(item, have + 1);
+    if (probe.inventoryQty > item.stock) return false;
+    _lines[item.id] = probe;
     notifyListeners();
     return true;
   }
@@ -150,11 +164,31 @@ class CartState extends ChangeNotifier {
     _mode = mode;
     _lineModes.clear();
     for (final id in _lines.keys.toList()) {
-      final l = _lines[id]!;
-      _lines[id] = _line(l.item, l.qty);
+      _reline(id);
     }
     _fixDiscount();
     notifyListeners();
+  }
+
+  /// Rebuilds one line after its mode changed. A wholesale unit uses more
+  /// stock, so the quantity is cut to what is on hand, and the line is
+  /// removed when not even one unit fits.
+  void _reline(String id) {
+    final l = _lines[id];
+    if (l == null) return;
+    var qty = l.qty;
+    var next = _line(l.item, qty);
+    while (qty > 0 && next.inventoryQty > l.item.stock) {
+      qty--;
+      next = _line(l.item, qty);
+    }
+    if (qty <= 0) {
+      _lines.remove(id);
+      _overrides.remove(id);
+      _lineModes.remove(id);
+    } else {
+      _lines[id] = next;
+    }
   }
 
   /// Sets retail or wholesale for one line only. Ignored when the item has no
@@ -163,7 +197,7 @@ class CartState extends ChangeNotifier {
     final l = _lines[id];
     if (l == null || !l.item.hasWholesale) return;
     _lineModes[id] = mode;
-    _lines[id] = _line(l.item, l.qty);
+    _reline(id);
     _fixDiscount();
     notifyListeners();
   }
@@ -242,8 +276,14 @@ class CartState extends ChangeNotifier {
           changed++;
           return;
         }
-        final qty = want > item.stock ? item.stock.floor() : want;
+        _lines[item.id] = _line(item, want);
+        // Cap after modes are known: a wholesale unit uses more stock.
+        var qty = want;
+        while (qty > 0 && _line(item, qty).inventoryQty > item.stock) {
+          qty--;
+        }
         if (qty <= 0) {
+          _lines.remove(item.id);
           changed++;
           return;
         }
