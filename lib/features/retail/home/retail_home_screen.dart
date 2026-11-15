@@ -11,6 +11,7 @@ import '../../../providers/retail_provider.dart';
 import '../../../shared_features/session/tenant_scope.dart';
 import 'retail_home_data.dart';
 import 'retail_home_view.dart';
+import 'retail_sales_summary.dart';
 
 /// Retail home on v2. The only retail v2 file that reads providers.
 ///
@@ -34,7 +35,7 @@ class _RetailHomeBody extends StatefulWidget {
 }
 
 class _RetailHomeBodyState extends State<_RetailHomeBody> {
-  double _salesToday = 0;
+  SalesWindow _sales = SalesWindow.empty;
   final Set<String> _done = {};
 
   @override
@@ -45,8 +46,12 @@ class _RetailHomeBodyState extends State<_RetailHomeBody> {
       final id = context.read<BusinessProvider>().currentBusiness?.id;
       if (id == null) return;
       await retail.initialize(id);
-      final total = await retail.getTodaysSalesTotal();
-      if (mounted) setState(() => _salesToday = total);
+      try {
+        final w = await fetchSalesWindow(id);
+        if (mounted) setState(() => _sales = w);
+      } catch (_) {
+        // Keep the empty window; the hero shows zero rather than failing.
+      }
     });
   }
 
@@ -59,12 +64,10 @@ class _RetailHomeBodyState extends State<_RetailHomeBody> {
     return RetailHomeData(
       businessName: b.name,
       greetingName: greeting,
-      salesToday: _salesToday,
-      // Yesterday and the 7-day trend need a sales-summary call that does
-      // not exist for retail yet; shown as flat until it is added.
-      deltaPercent: 0,
-      salesCount: 0,
-      spark: const [0, 0],
+      salesToday: _sales.today,
+      deltaPercent: _sales.deltaPercent,
+      salesCount: _sales.todayCount,
+      spark: _sales.daily,
       plan: PlanSummary(
         familyLabel: 'Standard',
         tierName: bp.normalizedSubscriptionTier,

@@ -38,7 +38,7 @@ Wave 1 Retail (pilot) -> gate -> Wave 2 catalogue and cart -> Wave 3 booking and
 - Phase 2 (demo-parity primitives): `AmbientBackground`, `GlassSurface`, `StaggerIn`, `StatusIsland`, `PillTabBar`, bundled fonts (pubspec.yaml `fonts:`), tests in `test/ui_v2/phase2_test.dart`.
 - Phase 3 (Retail home view): `HeroKpiCard`, `HoloTilt`, `OdometerText`, `SparklineDraw`, `SwipeRow`, `QuickActionsGrid`, `PlanSummaryCard`, `lib/features/retail/home/` (view and data, no provider access), `test/ui_v2/phase3_test.dart`.
 - Phase 3c (multi-business): session phases, per-business profile states, `TenantScope`, v2 switcher sheet, `SessionGate` with skeletons, provider adapter, `test/ui_v2/session_test.dart`. See `multitenant.md`.
-- Phase 3b (retail wiring): `lib/features/retail/home/retail_home_screen.dart` connector (providers read here only); `routes/app_router.dart` retail case switches on `UiV2.enabledFor('retail')` (one edit; default build unchanged). Delta, sales count and trend are flat until a retail sales-summary call exists. Next: plan journey, catalogue-cart template.
+- Phase 3b (retail wiring): `lib/features/retail/home/retail_home_screen.dart` connector (providers read here only); `routes/app_router.dart` retail case switches on `UiV2.enabledFor('retail')` (one edit; default build unchanged). Delta, count and 7-day trend come from `retail_sales_summary.dart` (one `fetchSales` call, tested in `sales_window_test.dart`). Next: plan journey, catalogue-cart template.
 
 ## Checks
 ```
